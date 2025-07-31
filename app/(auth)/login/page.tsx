@@ -1,10 +1,11 @@
+// src/app/(auth)/login/page.tsx
 "use client";
 import { Eye, EyeOff, Mail } from "lucide-react";
 import { useRouter } from "next/navigation"; 
 import React, { useState } from "react";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const router = useRouter(); 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -31,28 +32,26 @@ export default function LoginPage() {
       if (typeof window !== 'undefined') {
         localStorage.setItem('isAuthenticated', 'true');
       }
-      console.log("Simulating navigation to /admin");
-      router.push('/admin'); 
+      router.push('/admin');
     } else {
       setError("Invalid credentials. Use email: demo@example.com with password: password123");
     }
   };
 
   const handleForgotPassword = () => {
-    console.log("Simulating navigation to /forgot");
     router.push('/forgot'); 
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Login Form Container */}
       <div className="flex items-center justify-center py-16 px-6">
-        <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md border border-gray-200">
-          <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Login to Your Account</h1>
+        <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+          <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center dark:text-gray-100">Login to Your Account</h1>
 
           {/* Error message */}
           {error && (
-            <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md text-sm">
+            <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md text-sm dark:bg-red-900 dark:text-red-100">
               {error}
             </div>
           )}
@@ -60,7 +59,7 @@ export default function LoginPage() {
           <div className="space-y-6">
             {/* Email Input */}
             <div className="flex flex-col gap-2">
-              <label className="font-medium text-gray-700">Email Address</label>
+              <label className="font-medium text-gray-700 dark:text-gray-300">Email Address</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Mail className="text-gray-500" size={18} />
@@ -70,25 +69,25 @@ export default function LoginPage() {
                   value={email}
                   placeholder="demo@example.com"
                   onChange={(e) => setEmail(e.target.value)}
-                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-10 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-10 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
                 />
               </div>
             </div>
 
             {/* Password Input */}
             <div className="flex flex-col gap-2">
-              <label className="font-medium text-gray-700">Password</label>
+              <label className="font-medium text-gray-700 dark:text-gray-300">Password</label>
               <div className="relative">
                 <input
                   type={passwordType}
                   value={password}
                   placeholder="password123"
                   onChange={(e) => setPassword(e.target.value)}
-                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent pr-10"
+                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent pr-10 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
                 />
                 <button
                   type="button"
-                  className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -99,7 +98,7 @@ export default function LoginPage() {
             {/* Login Button */}
             <button
               onClick={handleLogin}
-              className="w-full bg-green-700 hover:bg-green-800 text-white font-medium py-2 px-4 rounded-md transition duration-200"
+              className="w-full bg-green-700 hover:bg-green-800 text-white font-medium py-2 px-4 rounded-md transition duration-200 dark:bg-green-800 dark:hover:bg-green-900"
             >
               Log In
             </button>
@@ -108,7 +107,7 @@ export default function LoginPage() {
             <div className="text-center">
               <button
                 onClick={handleForgotPassword}
-                className="text-sm text-green-700 hover:text-green-800 hover:underline"
+                className="text-sm text-green-700 hover:text-green-800 hover:underline dark:text-green-400 dark:hover:text-green-200"
               >
                 Forgot Password?
               </button>

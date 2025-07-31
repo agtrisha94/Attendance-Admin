@@ -1,3 +1,4 @@
+// src/app/(auth)/forgot/page.tsx
 "use client";
 import { Mail } from "lucide-react";
 import { useRouter } from "next/navigation"; 
@@ -11,28 +12,27 @@ export default function ForgotPasswordPage() {
   const handleSubmit = () => {
     // This would send a reset link/OTP in a real application
     setIsSubmitted(true);
-    // For demo, simulate redirect to reset page after 1 second
-    console.log("Simulating navigation to /reset after 1 second");
-    setTimeout(() => router.push('/reset'), 1000);
+    console.log("Simulating navigation to /reset after 5 seconds");
+    setTimeout(() => router.push('/reset'), 5000);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="flex items-center justify-center py-16 px-6">
-        <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md border border-gray-200">
-          <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">
+        <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+          <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center dark:text-gray-100">
             {isSubmitted ? "Check Your Inbox" : "Reset Your Password"}
           </h1>
 
           {!isSubmitted ? (
             <div className="space-y-6">
-              <p className="text-gray-600 text-center">
+              <p className="text-gray-600 text-center dark:text-gray-300">
                 Enter your registered email to receive reset instructions
               </p>
 
               {/* Email Input Field */}
               <div className="flex flex-col gap-2">
-                <label className="font-medium text-gray-700">Email Address</label>
+                <label className="font-medium text-gray-700 dark:text-gray-300">Email Address</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Mail className="text-gray-500" size={18} />
@@ -42,7 +42,7 @@ export default function ForgotPasswordPage() {
                     value={email}
                     placeholder="your.email@example.com"
                     onChange={(e) => setEmail(e.target.value)}
-                    className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-10 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-10 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
                   />
                 </div>
               </div>
@@ -54,22 +54,22 @@ export default function ForgotPasswordPage() {
                   !email.includes('@')
                     ? 'opacity-50 cursor-not-allowed'
                     : 'hover:bg-green-800'
-                }`}
+                } dark:bg-green-800 dark:hover:bg-green-900`}
               >
                 Send Reset Link
               </button>
             </div>
           ) : (
             <div className="text-center space-y-4">
-              <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-md">
+              <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-md dark:bg-green-900 dark:border-green-800 dark:text-green-100">
                 <p>We've sent reset instructions to your email</p>
               </div>
-              <p className="text-gray-600">
-                Didn't receive anything? <button className="text-green-700 hover:underline">Resend</button>
+              <p className="text-gray-600 dark:text-gray-300">
+                Didn't receive anything? <button className="text-green-700 hover:underline dark:text-green-400 dark:hover:text-green-200">Resend</button>
               </p>
               <button
-                onClick={() => console.log("Simulating navigation to /login")} // router.push('/login')
-                className="text-sm text-green-700 hover:text-green-800 hover:underline"
+                onClick={() => router.push('/login')}
+                className="text-sm text-green-700 hover:text-green-800 hover:underline dark:text-green-400 dark:hover:text-green-200"
               >
                 Back to Login
               </button>
