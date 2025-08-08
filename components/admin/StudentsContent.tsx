@@ -8,7 +8,7 @@ interface Student {
   name: string;
   major: string;
   email: string;
-  status: string;
+  status: string; 
 }
 
 const mockStudents: Student[] = [

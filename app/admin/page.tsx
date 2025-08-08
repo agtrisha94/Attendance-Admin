@@ -1,11 +1,12 @@
 "use client";
 import React, { useState } from 'react';
-// Import extracted components
+// Import extracted components 
 import Header from '@/components/admin/Header';
 import Sidebar from '@/components/admin/Sidebar';
 import AttendanceContent from '@/components/admin/AttendanceContent';
 import TeachersContent from '@/components/admin/TeachersContent';
 import StudentsContent from '@/components/admin/StudentsContent';
+import AssignTeachersContent from '@/components/admin/AssignTeachersContent'; // ✅ New import
 import SettingsContent from '@/components/SettingsContent'; // Assuming SettingsContent is in src/components directly
 import { useTheme } from '@/context/ThemeContext';
 
@@ -20,6 +21,8 @@ const AdminPage: React.FC = () => {
         return <AttendanceContent />;
       case 'teachers':
         return <TeachersContent />;
+      case 'assign-teachers': // ✅ New case
+        return <AssignTeachersContent />;
       case 'students':
         return <StudentsContent />;
       case 'settings':
