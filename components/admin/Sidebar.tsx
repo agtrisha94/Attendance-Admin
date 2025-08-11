@@ -1,11 +1,19 @@
 import React from "react";
-import { CalendarCheck, GraduationCap, Settings, Users, X, UserPlus } from "lucide-react";
+import {
+  CalendarCheck,
+  GraduationCap,
+  Settings,
+  Users,
+  X,
+  UserPlus,
+  CalendarDays,
+} from "lucide-react";
 import Link from "next/link"; // Added missing import
 
 interface SidebarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
-  isOpen: boolean; 
+  isOpen: boolean;
   onMenuToggle: () => void;
 }
 
@@ -80,6 +88,20 @@ const Sidebar: React.FC<SidebarProps> = ({
             <GraduationCap size={20} /> Students
           </button>
         </li>
+
+        <li
+          className={`mb-3 ${
+            activeTab === "sessions" ? "bg-gray-700 rounded" : ""
+          } dark:hover:bg-gray-700`}
+        >
+          <button
+            onClick={() => onTabChange("sessions")}
+            className="flex items-center gap-3 p-3 w-full text-left hover:bg-gray-700 rounded text-gray-200 hover:text-white dark:text-gray-300 dark:hover:text-white"
+          >
+            <CalendarDays size={20} /> Session Management
+          </button>
+        </li>
+
         <li
           className={`mb-3 ${
             activeTab === "settings" ? "bg-gray-700 rounded" : ""

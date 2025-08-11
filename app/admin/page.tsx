@@ -6,8 +6,9 @@ import Sidebar from '@/components/admin/Sidebar';
 import AttendanceContent from '@/components/admin/AttendanceContent';
 import TeachersContent from '@/components/admin/TeachersContent';
 import StudentsContent from '@/components/admin/StudentsContent';
-import AssignTeachersContent from '@/components/admin/AssignTeachersContent'; // ✅ New import
-import SettingsContent from '@/components/SettingsContent'; // Assuming SettingsContent is in src/components directly
+import AssignTeachersContent from '@/components/admin/AssignTeachersContent';
+import SessionManagementContent from '@/components/admin/SessionManagementContent'; // ✅ New
+import SettingsContent from '@/components/SettingsContent'; 
 import { useTheme } from '@/context/ThemeContext';
 
 const AdminPage: React.FC = () => {
@@ -21,10 +22,12 @@ const AdminPage: React.FC = () => {
         return <AttendanceContent />;
       case 'teachers':
         return <TeachersContent />;
-      case 'assign-teachers': // ✅ New case
+      case 'assign-teachers':
         return <AssignTeachersContent />;
       case 'students':
         return <StudentsContent />;
+      case 'sessions': // ✅ New case
+        return <SessionManagementContent />;
       case 'settings':
         return <SettingsContent />;
       default:
