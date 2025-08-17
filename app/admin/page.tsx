@@ -7,7 +7,7 @@ import AttendanceContent from '@/components/admin/AttendanceContent';
 import TeachersContent from '@/components/admin/TeachersContent';
 import StudentsContent from '@/components/admin/StudentsContent';
 import AssignTeachersContent from '@/components/admin/AssignTeachersContent';
-import SessionManagementContent from '@/components/admin/SessionManagementContent'; // ✅ New
+import SessionManagementContent from '@/components/admin/SessionManagementContent'; 
 import SettingsContent from '@/components/SettingsContent'; 
 import { useTheme } from '@/context/ThemeContext';
 

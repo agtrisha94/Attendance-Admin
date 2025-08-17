@@ -1,55 +1,54 @@
-// src/app/(auth)/login/page.tsx
 "use client";
 import { Eye, EyeOff, Mail } from "lucide-react";
-import { useRouter } from "next/navigation"; 
+import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
 export default function LoginPage() {
-  const router = useRouter(); 
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
   const passwordType = showPassword ? "text" : "password";
 
   // Hardcoded credentials for demo purposes
   const DEMO_CREDENTIALS = {
     email: "demo@example.com",
-    password: "password123"
+    password: "password123",
   };
 
   const handleLogin = () => {
     setError("");
-    
-    // Validate credentials
-    let isValid = false;
-    
-    isValid = email === DEMO_CREDENTIALS.email && 
-              password === DEMO_CREDENTIALS.password;
+
+    const isValid =
+      email === DEMO_CREDENTIALS.email &&
+      password === DEMO_CREDENTIALS.password;
 
     if (isValid) {
-      // Store simple auth state in localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('isAuthenticated', 'true');
+      if (typeof window !== "undefined") {
+        localStorage.setItem("isAuthenticated", "true");
       }
-      router.push('/admin');
+      router.push("/admin");
     } else {
-      setError("Invalid credentials. Use email: demo@example.com with password: password123");
+      setError(
+        "Invalid credentials. Use email: demo@example.com with password: password123"
+      );
     }
   };
 
-  const handleForgotPassword = () => {
-    router.push('/forgot'); 
+  const handleFirstTimeUser = () => {
+    router.push("/reset");
   };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Login Form Container */}
       <div className="flex items-center justify-center py-16 px-6">
         <div className="w-full max-w-md bg-white p-8 rounded-lg shadow-md border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
-          <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center dark:text-gray-100">Login to Your Account</h1>
+          <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center dark:text-gray-100">
+            Login to Your Account
+          </h1>
 
-          {/* Error message */}
           {error && (
             <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md text-sm dark:bg-red-900 dark:text-red-100">
               {error}
@@ -59,7 +58,9 @@ export default function LoginPage() {
           <div className="space-y-6">
             {/* Email Input */}
             <div className="flex flex-col gap-2">
-              <label className="font-medium text-gray-700 dark:text-gray-300">Email Address</label>
+              <label className="font-medium text-gray-700 dark:text-gray-300">
+                Email Address
+              </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Mail className="text-gray-500" size={18} />
@@ -76,7 +77,9 @@ export default function LoginPage() {
 
             {/* Password Input */}
             <div className="flex flex-col gap-2">
-              <label className="font-medium text-gray-700 dark:text-gray-300">Password</label>
+              <label className="font-medium text-gray-700 dark:text-gray-300">
+                Password
+              </label>
               <div className="relative">
                 <input
                   type={passwordType}
@@ -103,13 +106,13 @@ export default function LoginPage() {
               Log In
             </button>
 
-            {/* Forgot Password Link */}
+            {/* First-time User Link */}
             <div className="text-center">
               <button
-                onClick={handleForgotPassword}
+                onClick={handleFirstTimeUser}
                 className="text-sm text-green-700 hover:text-green-800 hover:underline dark:text-green-400 dark:hover:text-green-200"
               >
-                Forgot Password?
+                Are you a first-time user?
               </button>
             </div>
           </div>
