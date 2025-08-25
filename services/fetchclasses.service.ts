@@ -10,7 +10,7 @@ export const fetchClassesByBranch = async (
     const response = await api.get(
       `/class/${programName}/${yearNumber}/${branchName}`
     );
-    return response.data;
+    return response.data as any[];
   } catch (error) {
     console.error(
       `Error fetching classes for ${programName} - Year ${yearNumber} - Branch ${branchName}:`,

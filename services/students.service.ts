@@ -11,5 +11,5 @@ export const getStudentsBySubjectCode = async (
   classId: string | number
 ): Promise<Student[]> => {
   const res = await api.get(`/elective/students/subject/${subjectCode}/class/${classId}`);
-  return res.data; // now expected to be Student[]
+  return res.data as any[]; // now expected to be Student[]
 };

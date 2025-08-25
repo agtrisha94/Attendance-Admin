@@ -4,7 +4,7 @@ import api from "@/lib/api";
 export const fetchTimetableByClassId = async (classId: number): Promise<any[]> => {
   try {
     const response = await api.get(`/timetable/class/${classId}`);
-    return response.data;
+    return response.data as any[];
   } catch (error) {
     console.error(`Error fetching timetable for class ${classId}:`, error);
     throw new Error("Failed to fetch timetable by class ID");
