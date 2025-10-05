@@ -38,10 +38,8 @@ export default function ResetPasswordClient() {
         token,
         newPassword: password,
       });
-      console.log("Reset response:", res.data);
       setSuccess(true);
     } catch (err: any) {
-      console.log("Reset error:", err.response?.data);
       const message =
         err.response?.data?.message || "Failed to reset password.";
       setErrorMessage(message);
@@ -51,33 +49,11 @@ export default function ResetPasswordClient() {
   };
 
   if (success) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          height: "100vh",
-          flexDirection: "column",
-          gap: "12px",
-        }}
-      >
-        <h2 style={{ color: "green" }}>Password reset successfully!</h2>
-      </div>
-    );
+    return <h2>Password reset successfully!</h2>;
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100vh",
-        flexDirection: "column",
-        gap: "12px",
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "center", justifyContent: "center", height: "100vh" }}>
       <h2>Reset Password</h2>
       <input
         type="password"
@@ -100,7 +76,6 @@ export default function ResetPasswordClient() {
       >
         {loading ? "Resetting..." : "Reset Password"}
       </button>
-
       {errorMessage && (
         <p style={{ color: "red", marginTop: "12px" }}>{errorMessage}</p>
       )}

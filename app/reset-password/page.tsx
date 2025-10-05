@@ -1,18 +1,18 @@
-"use client"; // Must be at the very top
+"use client";
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import api from "@/lib/api";
 
-export default function ResetPasswordPage() {
+export default function ResetPasswordClient() {
   const params = useSearchParams();
-  const token = params.get("token"); // get token from URL
+  const token = params.get("token");
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(""); // store backend errors
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     if (!token) {
@@ -38,10 +38,8 @@ export default function ResetPasswordPage() {
         token,
         newPassword: password,
       });
-      console.log("Reset response:", res.data);
       setSuccess(true);
     } catch (err: any) {
-      console.log("Reset error:", err.response?.data);
       const message =
         err.response?.data?.message || "Failed to reset password.";
       setErrorMessage(message);
@@ -51,33 +49,11 @@ export default function ResetPasswordPage() {
   };
 
   if (success) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          height: "100vh",
-          flexDirection: "column",
-          gap: "12px",
-        }}
-      >
-        <h2 style={{ color: "green" }}>Password reset successfully!</h2>
-      </div>
-    );
+    return <h2>Password reset successfully!</h2>;
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100vh",
-        flexDirection: "column",
-        gap: "12px",
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "center", justifyContent: "center", height: "100vh" }}>
       <h2>Reset Password</h2>
       <input
         type="password"
@@ -100,7 +76,6 @@ export default function ResetPasswordPage() {
       >
         {loading ? "Resetting..." : "Reset Password"}
       </button>
-
       {errorMessage && (
         <p style={{ color: "red", marginTop: "12px" }}>{errorMessage}</p>
       )}
