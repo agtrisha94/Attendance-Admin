@@ -1,20 +1,16 @@
 // lib/api.ts
 import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useAuthStore } from "../store/auth.store";
-import { Alert } from "react-native";
-import { router } from "expo-router"; // Importing router this way avoids using useRouter inside this file
 
 const api = axios.create({
   baseURL: "https://attendance-app-o83z.onrender.com/",
-  withCredentials: true,
+  // withCredentials: true,
 });
 
 let interceptorAttached = false;
 
 export const attachInterceptor = () => {
   if (interceptorAttached) return;
-  interceptorAttached = true;``
+  interceptorAttached = true;
 
   let isRefreshing = false;
   let pendingRequests: (() => void)[] = [];
@@ -35,22 +31,27 @@ export const attachInterceptor = () => {
         isRefreshing = true;
 
         try {
-          const { data } = await api.post("/auth/refresh", {}, {
-            withCredentials: true,
-          });
+          // Refresh token request
+          const { data } = await api.post("/auth/refresh", {}, { withCredentials: true });
 
           const { access_token } = data as { access_token: string };
-          await AsyncStorage.setItem("token", access_token);
+          localStorage.setItem("token", access_token);
           api.defaults.headers.common["Authorization"] = `Bearer ${access_token}`;
 
-          pendingRequests.forEach(cb => cb());
+          pendingRequests.forEach((cb) => cb());
           pendingRequests = [];
           return api(originalRequest);
         } catch (err) {
-          await AsyncStorage.multiRemove(["token", "role"]);
-          useAuthStore.getState().reset();
-          Alert.alert("Session expired", "Please log in again.");
-          router.replace("/logIn");
+          // Clear stored tokens
+          localStorage.removeItem("token");
+          localStorage.removeItem("role");
+
+          // Optional: simple alert
+          if (typeof window !== "undefined") {
+            window.alert("Session expired. Please log in again.");
+            window.location.href = "/logIn"; // redirect to login
+          }
+
           return Promise.reject(err);
         } finally {
           isRefreshing = false;
