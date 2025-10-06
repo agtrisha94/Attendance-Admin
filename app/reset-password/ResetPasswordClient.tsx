@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
 import api from "@/lib/api";
 
 export default function ResetPasswordClient() {
@@ -49,7 +49,7 @@ export default function ResetPasswordClient() {
   };
 
   if (success) {
-    return <h2>Password reset successfully!</h2>;
+    return <h2 style={{ color: "green" }}>Password reset successfully!</h2>;
   }
 
   return (
