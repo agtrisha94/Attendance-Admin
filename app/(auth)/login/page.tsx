@@ -3,42 +3,83 @@ import { Eye, EyeOff, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://attendance-app-o83z.onrender.com";
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const passwordType = showPassword ? "text" : "password";
 
-  // Hardcoded credentials for demo purposes
-  const DEMO_CREDENTIALS = {
-    email: "demo@example.com",
-    password: "password123",
-  };
-
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setError("");
+    if (!email || !password) {
+      setError("Please enter both email and password.");
+      return;
+    }
 
-    const isValid =
-      email === DEMO_CREDENTIALS.email &&
-      password === DEMO_CREDENTIALS.password;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (isValid) {
-      if (typeof window !== "undefined") {
-        localStorage.setItem("isAuthenticated", "true");
+      const data = await res.json();
+
+      if (!res.ok) {
+        const msg = data?.message || "Login failed. Check credentials.";
+        setError(msg);
+        setLoading(false);
+        return;
       }
-      router.push("/admin");
-    } else {
-      setError(
-        "Invalid credentials. Use email: demo@example.com with password: password123"
-      );
+
+      // Expecting access_token, refresh_token (optional), role, userId, teacherId, studentId
+      const {
+        access_token,
+        refresh_token,
+        role,
+        userId,
+        teacherId,
+        studentId,
+      } = data as any;
+
+      if (!access_token) {
+        setError("Login succeeded but server did not return access token.");
+        setLoading(false);
+        return;
+      }
+
+      // Persist for client usage
+      localStorage.setItem("token", access_token);
+      if (refresh_token) localStorage.setItem("refreshToken", refresh_token);
+      if (role) localStorage.setItem("role", role);
+      if (userId) localStorage.setItem("userId", userId);
+      if (teacherId) localStorage.setItem("teacherId", teacherId);
+      if (studentId) localStorage.setItem("studentId", studentId);
+      localStorage.setItem("isAuthenticated", "true");
+
+      // navigate based on role (optional)
+      if (role === "ADMIN") router.push("/admin");
+      else if (role === "TEACHER") router.push("/teacher");
+      else if (role === "STUDENT") router.push("/student");
+      else router.push("/admin"); // fallback
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || "Network error — please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleFirstTimeUser = () => {
-    router.push("/reset");
+    router.push("/(auth)/reset");
   };
 
   return (
@@ -68,7 +109,7 @@ export default function LoginPage() {
                 <input
                   type="email"
                   value={email}
-                  placeholder="demo@example.com"
+                  placeholder="your.email@example.com"
                   onChange={(e) => setEmail(e.target.value)}
                   className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-10 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
                 />
@@ -84,7 +125,7 @@ export default function LoginPage() {
                 <input
                   type={passwordType}
                   value={password}
-                  placeholder="password123"
+                  placeholder="password"
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent pr-10 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
                 />
@@ -101,9 +142,10 @@ export default function LoginPage() {
             {/* Login Button */}
             <button
               onClick={handleLogin}
-              className="w-full bg-green-700 hover:bg-green-800 text-white font-medium py-2 px-4 rounded-md transition duration-200 dark:bg-green-800 dark:hover:bg-green-900"
+              disabled={loading}
+              className="w-full bg-green-700 hover:bg-green-800 text-white font-medium py-2 px-4 rounded-md transition duration-200 dark:bg-green-800 dark:hover:bg-green-900 disabled:opacity-60"
             >
-              Log In
+              {loading ? "Signing in..." : "Log In"}
             </button>
 
             {/* First-time User Link */}
@@ -113,6 +155,15 @@ export default function LoginPage() {
                 className="text-sm text-green-700 hover:text-green-800 hover:underline dark:text-green-400 dark:hover:text-green-200"
               >
                 Are you a first-time user?
+              </button>
+            </div>
+
+            <div className="text-center">
+              <button
+                onClick={() => router.push("/(auth)/forgot")}
+                className="text-sm text-gray-600 hover:underline dark:text-gray-300"
+              >
+                Forgot password?
               </button>
             </div>
           </div>
