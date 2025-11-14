@@ -1,10 +1,64 @@
 // lib/api.ts
 import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Alert } from "react-native";
 
 /**
- * Keys used in AsyncStorage
+ * Web-friendly replacement for AsyncStorage used in React Native.
+ * This keeps the same async API (getItem, setItem, removeItem, multiRemove)
+ * but delegates to localStorage in the browser. On server (SSR) these
+ * functions behave as no-ops or return null so builds won't fail.
+ */
+const isBrowser = typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+
+const WebStorage = {
+  getItem: (key: string): Promise<string | null> => {
+    if (!isBrowser) return Promise.resolve(null);
+    try {
+      return Promise.resolve(window.localStorage.getItem(key));
+    } catch (e) {
+      console.warn("WebStorage.getItem error", e);
+      return Promise.resolve(null);
+    }
+  },
+
+  setItem: (key: string, value: string): Promise<void> => {
+    if (!isBrowser) return Promise.resolve();
+    try {
+      window.localStorage.setItem(key, value);
+      return Promise.resolve();
+    } catch (e) {
+      console.warn("WebStorage.setItem error", e);
+      return Promise.resolve();
+    }
+  },
+
+  removeItem: (key: string): Promise<void> => {
+    if (!isBrowser) return Promise.resolve();
+    try {
+      window.localStorage.removeItem(key);
+      return Promise.resolve();
+    } catch (e) {
+      console.warn("WebStorage.removeItem error", e);
+      return Promise.resolve();
+    }
+  },
+
+  // Accepts an array of keys to remove
+  multiRemove: (keys: string[]): Promise<void> => {
+    if (!isBrowser) return Promise.resolve();
+    try {
+      keys.forEach((k) => window.localStorage.removeItem(k));
+      return Promise.resolve();
+    } catch (e) {
+      console.warn("WebStorage.multiRemove error", e);
+      return Promise.resolve();
+    }
+  },
+};
+
+const AsyncStorage = WebStorage; // keep the same name used throughout the file
+
+/**
+ * Keys used in storage
  */
 const TOKEN_KEY = "token";
 const REFRESH_KEY = "refreshToken";
@@ -27,13 +81,11 @@ export const attachInterceptor = () => {
   let isRefreshing = false;
   let pendingRequests: Array<(token?: string) => void> = [];
 
-  // Use .then rather than async/await in interceptor to satisfy Axios TS overloads
+  // Request interceptor: attach token from storage
   api.interceptors.request.use(
     (config: any) => {
-      // Return a Promise using .then (avoids TS overload mismatch)
       return AsyncStorage.getItem(TOKEN_KEY).then((token) => {
         if (token) {
-          // headers typing can be loose here
           config.headers = config.headers ?? {};
           (config.headers as any).Authorization = `Bearer ${token}`;
         }
@@ -43,19 +95,23 @@ export const attachInterceptor = () => {
     (error) => Promise.reject(error)
   );
 
+  // Response interceptor: handle 401 and refresh flow
   api.interceptors.response.use(
     (res) => res,
     (error: any) => {
       const originalRequest = error.config;
 
+      // If not a 401, reject
       if (!error.response || error.response.status !== 401) {
         return Promise.reject(error);
       }
 
+      // Avoid retry loop
       if (originalRequest._retry) {
         return Promise.reject(error);
       }
 
+      // If a refresh is already ongoing, queue this request
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           pendingRequests.push(async (newToken?: string) => {
@@ -90,11 +146,18 @@ export const attachInterceptor = () => {
             ]).then(() => Promise.reject(error));
           }
 
-          // Call refresh endpoint using plain axios to avoid interceptors recursion
+          // Use plain axios to call refresh endpoint to avoid interceptor recursion
           return axios
-            .post(`${api.defaults.baseURL}auth/refresh`, { refreshToken }, { timeout: 15000 })
+            .post(
+              `${api.defaults.baseURL}auth/refresh`,
+              { refreshToken },
+              { timeout: 15000 }
+            )
             .then(async (response) => {
-              const data = (response.data ?? {}) as { access_token?: string; refresh_token?: string };
+              const data = (response.data ?? {}) as {
+                access_token?: string;
+                refresh_token?: string;
+              };
               const access_token = data.access_token;
               const refresh_token = data.refresh_token;
 
@@ -146,7 +209,10 @@ export const attachInterceptor = () => {
           }
 
           try {
-            Alert.alert("Session expired", "Please log in again.");
+            // Replace RN Alert.alert with a safe browser fallback
+            if (isBrowser && typeof window.alert === "function") {
+              window.alert("Session expired. Please log in again.");
+            }
           } catch (e) {
             /* ignore */
           }

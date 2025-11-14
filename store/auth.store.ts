@@ -1,9 +1,10 @@
 // src/stores/authStore.ts
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { format } from "date-fns";
+import api from "@/lib/api"; // Assuming Axios instance
 
-export type Role = 'ADMIN' | 'STUDENT' | 'TEACHER' | null;
+export type Role = "ADMIN" | "STUDENT" | "TEACHER" | null;
 
 export interface ClassItem {
   classId: number;
@@ -13,6 +14,10 @@ export interface ClassItem {
   subjectId?: string;
   subjectName?: string;
 }
+
+/* -------------------------
+   Auth store
+   ------------------------- */
 
 type AuthState = {
   isAuthenticated: boolean;
@@ -33,11 +38,45 @@ type AuthState = {
   loading: boolean;
   setLoading: (value: boolean) => void;
 
-  selectedClass: ClassItem | null;            // ✅ ADDED
-  setSelectedClass: (cls: ClassItem | null) => void;  // ✅ ADDED
+  selectedClass: ClassItem | null;
+  setSelectedClass: (cls: ClassItem | null) => void;
 
   logout: () => void;
   reset: () => void;
+};
+
+/**
+ * In-memory fallback Storage used during SSR or when localStorage is unavailable.
+ * Implements minimal Storage-like API expected by createJSONStorage:
+ *   - getItem(key): string | null
+ *   - setItem(key, value): void
+ *   - removeItem(key): void
+ */
+const createMemoryStorage = () => {
+  const map = new Map<string, string>();
+  return {
+    getItem(key: string) {
+      const v = map.get(key);
+      return v === undefined ? null : v;
+    },
+    setItem(key: string, value: string) {
+      map.set(key, value);
+    },
+    removeItem(key: string) {
+      map.delete(key);
+    },
+  } as Storage; // cast for compatibility with createJSONStorage
+};
+
+/**
+ * Storage factory for zustand's createJSONStorage.
+ * Returns window.localStorage in browser, otherwise an in-memory fallback.
+ */
+const storageFactory = () => {
+  if (typeof window !== "undefined" && typeof window.localStorage !== "undefined") {
+    return window.localStorage;
+  }
+  return createMemoryStorage();
 };
 
 export const useAuthStore = create<AuthState>()(
@@ -61,8 +100,8 @@ export const useAuthStore = create<AuthState>()(
       loading: false,
       setLoading: (value) => set({ loading: value }),
 
-      selectedClass: null,                // ✅ initial state
-      setSelectedClass: (cls) => set({ selectedClass: cls }), // ✅ setter
+      selectedClass: null,
+      setSelectedClass: (cls) => set({ selectedClass: cls }),
 
       logout: () =>
         set({
@@ -71,7 +110,7 @@ export const useAuthStore = create<AuthState>()(
           teacherId: null,
           role: null,
           token: null,
-          selectedClass: null,            // ✅ clear on logout
+          selectedClass: null,
         }),
 
       reset: () =>
@@ -82,25 +121,27 @@ export const useAuthStore = create<AuthState>()(
           role: null,
           token: null,
           loading: false,
-          selectedClass: null,            // ✅ clear on reset
+          selectedClass: null,
         }),
     }),
     {
-      name: 'auth-storage',
-      storage: createJSONStorage(() => AsyncStorage),
+      name: "auth-storage",
+      storage: createJSONStorage(storageFactory),
       partialize: (state) => ({
         isAuthenticated: state.isAuthenticated,
         userId: state.userId,
         teacherId: state.teacherId,
         role: state.role,
         token: state.token,
-        selectedClass: state.selectedClass,  // ✅ persist it
+        selectedClass: state.selectedClass,
       }),
     }
   )
 );
 
-import { format } from "date-fns";
+/* -------------------------
+   Calendar store
+   ------------------------- */
 
 interface CalendarStore {
   selectedDate: Date;
@@ -122,8 +163,9 @@ export const useCalendarStore = create<CalendarStore>((set) => {
   };
 });
 
-import api from "@/lib/api"; // Assuming Axios instance
-// ─────────── types ───────────
+/* -------------------------
+   Lecture store
+   ------------------------- */
 
 export interface Lecture {
   id: string;
@@ -164,8 +206,6 @@ interface LectureState {
 
   deleteLecture: (id: string) => Promise<void>;
 }
-
-// ─────────── store ───────────
 
 export const useLectureStore = create<LectureState>((set, get) => ({
   lectures: [],
