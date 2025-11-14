@@ -5,12 +5,11 @@ import { fetchPrograms } from "@/services/program.service";
 import { fetchYearsByProgramName } from "@/services/year.service";
 import { fetchBranchesByAcademicYear } from "@/services/fetchBranches.service";
 import { fetchClassesByBranch } from "@/services/fetchclasses.service";
-
-/**
- * Final AttendanceContent (Program -> Year -> Branch -> Class)
- */
+import { fetchAttendanceForClass, AttendanceRecord } from "@/services/attendance.service";
+import { fetchUsersByIds, UserLite } from "@/services/user.service";
 
 export default function AttendanceContent() {
+  // --- selection state ---
   const [programs, setPrograms] = useState<any[]>([]);
   const [years, setYears] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
@@ -21,15 +20,23 @@ export default function AttendanceContent() {
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
 
+  // --- loading / error ---
   const [loading, setLoading] = useState({
     programs: false,
     years: false,
     branches: false,
     classes: false,
+    attendance: false,
+    users: false,
   });
 
   const [error, setError] = useState<string | null>(null);
 
+  // --- attendance + user map ---
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [userMap, setUserMap] = useState<Map<string, UserLite>>(new Map());
+
+  // --- load programs once ---
   useEffect(() => {
     const loadPrograms = async () => {
       try {
@@ -46,6 +53,7 @@ export default function AttendanceContent() {
     loadPrograms();
   }, []);
 
+  // --- when program changes, reset downstream and load years ---
   useEffect(() => {
     setYears([]);
     setSelectedYearId(null);
@@ -53,6 +61,8 @@ export default function AttendanceContent() {
     setSelectedBranch(null);
     setClasses([]);
     setSelectedClass(null);
+    setAttendance([]);
+    setUserMap(new Map());
     setError(null);
 
     if (!selectedProgramName) return;
@@ -73,11 +83,14 @@ export default function AttendanceContent() {
     loadYears();
   }, [selectedProgramName]);
 
+  // --- when year changes, reset downstream and load branches ---
   useEffect(() => {
     setBranches([]);
     setSelectedBranch(null);
     setClasses([]);
     setSelectedClass(null);
+    setAttendance([]);
+    setUserMap(new Map());
     setError(null);
 
     if (!selectedYearId) return;
@@ -98,9 +111,12 @@ export default function AttendanceContent() {
     loadBranches();
   }, [selectedYearId]);
 
+  // --- when branch changes, reset classes and load classes ---
   useEffect(() => {
     setClasses([]);
     setSelectedClass(null);
+    setAttendance([]);
+    setUserMap(new Map());
     setError(null);
 
     if (!selectedProgramName || !selectedYearId || !selectedBranch) return;
@@ -123,12 +139,91 @@ export default function AttendanceContent() {
     loadClasses();
   }, [selectedProgramName, selectedYearId, selectedBranch, years]);
 
+  // --- helper to resolve a human name given id or relation object ---
+  const readableName = (id?: string, relation?: { name?: string; firstName?: string; lastName?: string }) => {
+    if (!id && !relation) return "-";
+    // Prefer relation if backend included it
+    if (relation) {
+      if (relation.name) return relation.name;
+      const combined = `${relation.firstName ?? ""} ${relation.lastName ?? ""}`.trim();
+      if (combined) return combined;
+    }
+    // Then check fetched user map
+    if (id && userMap.has(id)) {
+      const u = userMap.get(id)!;
+      if (u.name) return u.name;
+      const combined = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
+      if (combined) return combined;
+    }
+    // Fallback to id if nothing else
+    return id ?? "-";
+  };
+
+  // --- load attendance and then resolve user names ---
+  const loadAttendance = async () => {
+    setError(null);
+    setAttendance([]);
+    setUserMap(new Map());
+
+    try {
+      if (!selectedClass) {
+        setError("Please select a class first.");
+        return;
+      }
+
+      // Resolve classId (selectedClass may be id or name)
+      const selectedClassObj = classes.find(
+        (c) => String(c.id) === String(selectedClass) || c.name === selectedClass || c.className === selectedClass
+      );
+      const classId = Number(selectedClassObj?.id ?? selectedClass);
+
+      if (!classId || Number.isNaN(classId)) {
+        setError("Could not determine classId. Ensure class objects include an 'id' field.");
+        return;
+      }
+
+      setLoading((s) => ({ ...s, attendance: true }));
+      const records = await fetchAttendanceForClass(classId);
+      setAttendance(Array.isArray(records) ? records : []);
+
+      // Collect unique user ids
+      const ids = new Set<string>();
+      (records || []).forEach((r) => {
+        if (r.studentId) ids.add(r.studentId);
+        if (r.markedById) ids.add(r.markedById);
+        if ((r as any).student?.id) ids.add((r as any).student.id);
+        if ((r as any).markedBy?.id) ids.add((r as any).markedBy.id);
+      });
+
+      const idArray = Array.from(ids);
+      if (idArray.length > 0) {
+        setLoading((s) => ({ ...s, users: true }));
+        const users = await fetchUsersByIds(idArray);
+        const map = new Map<string, UserLite>(users.map((u) => [u.id, u]));
+        setUserMap(map);
+      }
+    } catch (err) {
+      console.error("loadAttendance err:", err);
+      setError("Failed to load attendance or user details");
+    } finally {
+      setLoading((s) => ({ ...s, attendance: false, users: false }));
+    }
+  };
+
+  // --- clear attendance and users ---
+  const clearAttendance = () => {
+    setAttendance([]);
+    setUserMap(new Map());
+    setError(null);
+  };
+
   return (
     <div className="p-6">
       <h2 className="text-xl font-semibold mb-4">Attendance Dashboard</h2>
       {error && <div className="text-red-600 mb-3">{error}</div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Program */}
         <div>
           <label className="block text-sm font-medium">Program</label>
           <select
@@ -146,6 +241,7 @@ export default function AttendanceContent() {
           </select>
         </div>
 
+        {/* Year */}
         <div>
           <label className="block text-sm font-medium">Year</label>
           <select
@@ -163,6 +259,7 @@ export default function AttendanceContent() {
           </select>
         </div>
 
+        {/* Branch */}
         <div>
           <label className="block text-sm font-medium">Branch</label>
           <select
@@ -180,6 +277,7 @@ export default function AttendanceContent() {
           </select>
         </div>
 
+        {/* Class */}
         <div>
           <label className="block text-sm font-medium">Class</label>
           <select
@@ -190,8 +288,8 @@ export default function AttendanceContent() {
           >
             <option value="">Select class</option>
             {classes.map((c: any) => (
-              <option key={c.id ?? c.name} value={c.name ?? c.id}>
-                {c.name ?? c.className ?? c.label}
+              <option key={c.id ?? c.name} value={c.id ?? c.name}>
+                {c.name ?? c.className ?? c.label ?? c.id}
               </option>
             ))}
           </select>
@@ -203,20 +301,51 @@ export default function AttendanceContent() {
         {selectedBranch ?? "-"} / {selectedClass ?? "-"}
       </div>
 
-      <button
-        className="mt-4 px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
-        disabled={!selectedProgramName || !selectedYearId || !selectedBranch || !selectedClass}
-        onClick={() =>
-          console.log("Load attendance →", {
-            program: selectedProgramName,
-            yearNumber: years.find((y) => y.id === selectedYearId)?.number,
-            branch: selectedBranch,
-            className: selectedClass,
-          })
-        }
-      >
-        Load Attendance
-      </button>
+      <div className="flex gap-2 mt-4">
+        <button
+          className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
+          disabled={!selectedProgramName || !selectedYearId || !selectedBranch || !selectedClass || loading.attendance}
+          onClick={loadAttendance}
+        >
+          {loading.attendance || loading.users ? "Loading…" : "Load Attendance"}
+        </button>
+
+        <button className="px-4 py-2 rounded bg-gray-200" onClick={clearAttendance}>
+          Clear
+        </button>
+      </div>
+
+      {/* Attendance table */}
+      <div className="mt-6">
+        {loading.attendance && <div>Fetching attendance...</div>}
+
+        {!loading.attendance && attendance.length === 0 && <div className="text-sm text-gray-500">No attendance records loaded.</div>}
+
+        {attendance.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-left">
+                  <th className="border px-2 py-1">Student</th>
+                  <th className="border px-2 py-1">Date</th>
+                  <th className="border px-2 py-1">Status</th>
+                  <th className="border px-2 py-1">Marked By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attendance.map((r) => (
+                  <tr key={r.id}>
+                    <td className="border px-2 py-1">{readableName(r.studentId, (r as any).student)}</td>
+                    <td className="border px-2 py-1">{new Date(r.date).toLocaleString()}</td>
+                    <td className="border px-2 py-1">{r.status}</td>
+                    <td className="border px-2 py-1">{readableName(r.markedById, (r as any).markedBy)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
