@@ -1,249 +1,530 @@
+// components/admin/TeachersContent.tsx
 "use client";
-import React, { useState } from 'react';
-import * as Papa from 'papaparse';
+import React, { useEffect, useState } from "react";
+import {
+  fetchTeachers as svcFetchTeachers,
+  fetchTeacherById,
+  fetchClassesByTeacherId,
+  uploadTeachersCsv,
+  assignTeacherAdmin,
+  Teacher,
+} from "@/services/teacher.service";
+import { assignTeacherToSubjectForClass } from "@/services/assignTeacherToSubject";
+import { attachInterceptor } from "@/lib/api"; // ensures token attach + refresh flow
 
-interface Program {
-  id: number;
-  name: string;
-}
+// backend helpers from AttendanceContent
+import { fetchPrograms } from "@/services/program.service";
+import { fetchYearsByProgramName } from "@/services/year.service";
+import { fetchBranchesByAcademicYear } from "@/services/fetchBranches.service";
+import { fetchClassesByBranch } from "@/services/fetchclasses.service";
 
-interface Branch {
-  id: number;
-  name: string;
-  programId: number;
-}
+export default function TeachersContent() {
+  // data
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
-interface Teacher {
-  id: string;
-  name: string;
-  department: string;
-  email: string;
-  status: string;
-  assignedProgram?: string;
-  assignedBranch?: string;
-  assignedYear?: string;
-  assignedSection?: string;
-}
-
-const mockPrograms: Program[] = [
-  { id: 1, name: 'B.Tech' },
-  { id: 2, name: 'BBA' },
-  { id: 3, name: 'MBA' },
-];
-
-const mockBranches: Branch[] = [
-  { id: 101, name: 'Computer Science', programId: 1 },
-  { id: 102, name: 'Electrical', programId: 1 },
-  { id: 103, name: 'Mechanical', programId: 1 },
-  { id: 201, name: 'Marketing', programId: 2 },
-  { id: 202, name: 'Finance', programId: 2 },
-  { id: 301, name: 'HR', programId: 3 },
-  { id: 302, name: 'Operations', programId: 3 },
-];
-
-const mockTeachers: Teacher[] = [
-  {
-    id: 'T001', name: 'Dr. Emily White', department: 'Computer Science',
-    email: 'emily.w@example.com', status: 'Active',
-    assignedProgram: 'B.Tech', assignedBranch: 'Computer Science',
-    assignedYear: '1st Year', assignedSection: 'A'
-  },
-  {
-    id: 'T002', name: 'Prof. John Davis', department: 'Physics',
-    email: 'john.d@example.com', status: 'Active'
-  },
-  {
-    id: 'T003', name: 'Dr. Sarah Connor', department: 'Mathematics',
-    email: 'sarah.c@example.com', status: 'On Leave'
-  },
-];
-
-const TeachersContent: React.FC = () => {
-  const [teachers, setTeachers] = useState<Teacher[]>(mockTeachers);
-
-  const [adminEditingTeacherId, setAdminEditingTeacherId] = useState<string | null>(null);
-  const [currentAdminAssignment, setCurrentAdminAssignment] = useState({
-    program: '', branch: '', year: '', section: ''
+  // assignment modal (backed by backend lists)
+  const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
+  // assignment: program name, branch name, yearId (number|null), classId (number|string|null)
+  const [assignment, setAssignment] = useState<{
+    program: string;
+    branch: string;
+    yearId: number | null;
+    classId: string | number | null;
+  }>({
+    program: "",
+    branch: "",
+    yearId: null,
+    classId: null,
   });
 
-  const years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
-  const sections = ['A', 'B', 'C'];
+  // backend lists for modal selects
+  const [programs, setPrograms] = useState<any[]>([]);
+  const [yearsList, setYearsList] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [classesForSelection, setClassesForSelection] = useState<any[]>([]);
 
-  const handleAdminAssignClick = (teacher: Teacher) => {
-    setAdminEditingTeacherId(teacher.id);
-    setCurrentAdminAssignment({
-      program: teacher.assignedProgram || '',
-      branch: teacher.assignedBranch || '',
-      year: teacher.assignedYear || '',
-      section: teacher.assignedSection || ''
-    });
-  };
+  // details modal
+  const [detailsTeacher, setDetailsTeacher] = useState<Teacher | null>(null);
+  const [teacherClasses, setTeacherClasses] = useState<any[]>([]);
+  const [subjectIdInput, setSubjectIdInput] = useState("");
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
-  const handleSaveAdminAssignment = (teacherId: string) => {
-    setTeachers(teachers.map(t =>
-      t.id === teacherId
-        ? { ...t, ...{
-            assignedProgram: currentAdminAssignment.program,
-            assignedBranch: currentAdminAssignment.branch,
-            assignedYear: currentAdminAssignment.year,
-            assignedSection: currentAdminAssignment.section
-          }}
-        : t
-    ));
-    setAdminEditingTeacherId(null);
-    alert('Administrative assignment updated (frontend only).');
-  };
+  // pagination
+  const pageSize = 12;
+  const [page, setPage] = useState(1);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      Papa.parse(file, {
-        header: true,
-        complete: (results) => {
-          const newTeachers: Teacher[] = (results.data as Omit<Teacher, 'assignedProgram' | 'assignedBranch' | 'assignedYear' | 'assignedSection'>[])
-            .map(t => ({
-              ...t,
-              id: t.id || `T${Math.random().toString(36).substr(2, 9)}`
-            }));
-          setTeachers((prev) => [...prev, ...newTeachers]);
-        }
-      });
+  // attach axios interceptor (token refresh) once on client
+  useEffect(() => {
+    attachInterceptor();
+  }, []);
+
+  // load teachers
+  const load = async () => {
+    try {
+      setLoading(true);
+      const data = await svcFetchTeachers();
+      setTeachers(data);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to load teachers");
+    } finally {
+      setLoading(false);
     }
   };
 
+  useEffect(() => {
+    load();
+  }, []);
+
+  // --- load programs for modal on mount ---
+  useEffect(() => {
+    const loadPrograms = async () => {
+      try {
+        const res = await fetchPrograms();
+        setPrograms(Array.isArray(res) ? res : []);
+      } catch (err) {
+        console.error("fetchPrograms err:", err);
+      }
+    };
+    loadPrograms();
+  }, []);
+
+  // load years when program changes
+  useEffect(() => {
+    setYearsList([]);
+    setAssignment((a) => ({ ...a, yearId: null, branch: "", classId: null }));
+
+    if (!assignment.program) return;
+
+    const loadYears = async () => {
+      try {
+        const res = await fetchYearsByProgramName(assignment.program);
+        setYearsList(Array.isArray(res) ? res : []);
+      } catch (err) {
+        console.error("fetchYearsByProgramName err:", err);
+      }
+    };
+    loadYears();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignment.program]);
+
+  // load branches when yearId changes
+  useEffect(() => {
+    setBranches([]);
+    setAssignment((a) => ({ ...a, branch: "", classId: null }));
+
+    // guard: don't call with null
+    if (assignment.yearId === null) return;
+
+    const loadBranches = async () => {
+      try {
+        const res = await fetchBranchesByAcademicYear(assignment.yearId as number);
+        setBranches(Array.isArray(res) ? res : []);
+      } catch (err) {
+        console.error("fetchBranchesByAcademicYear err:", err);
+      }
+    };
+    loadBranches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignment.yearId]);
+
+  // load classes when program + year + branch selected
+  useEffect(() => {
+    setClassesForSelection([]);
+    setAssignment((a) => ({ ...a, classId: null }));
+
+    if (!assignment.program || assignment.yearId === null || !assignment.branch) return;
+
+    const loadClasses = async () => {
+      try {
+        const yearObj = yearsList.find((y) => y.id === assignment.yearId) ?? yearsList[0];
+        const yearNumber = yearObj?.number ?? assignment.yearId;
+        const res = await fetchClassesByBranch(assignment.program, Number(yearNumber), assignment.branch);
+        setClassesForSelection(Array.isArray(res) ? res : []);
+      } catch (err) {
+        console.error("fetchClassesByBranch err:", err);
+      }
+    };
+    loadClasses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignment.program, assignment.yearId, assignment.branch, yearsList]);
+
+  const handleOpenAssign = (t: Teacher) => {
+    setEditingTeacherId(t.id);
+
+    // populate assignment from teacher object (best-effort)
+    // assignedYear in Teacher is likely string|null. If it's numeric, parse to number.
+    const parsedYearId =
+      typeof (t as any).assignedYear === "number"
+        ? (t as any).assignedYear
+        : typeof (t as any).assignedYear === "string" && /^\d+$/.test((t as any).assignedYear)
+        ? Number((t as any).assignedYear)
+        : null;
+
+    setAssignment({
+      program: t.assignedProgram || "",
+      branch: t.assignedBranch || "",
+      yearId: parsedYearId,
+      classId: (t as any).assignedClassId ?? null,
+    });
+  };
+
+  const handleSaveAssignment = async (teacherId: string) => {
+    // optimistic update in local list — ensure assignedYear is string to match Teacher type
+    setTeachers((prev) =>
+      prev.map((p) =>
+        p.id === teacherId
+          ? {
+              ...p,
+              assignedProgram: assignment.program || null,
+              assignedBranch: assignment.branch || null,
+              assignedYear: assignment.yearId !== null ? String(assignment.yearId) : null,
+              ...(assignment.classId ? { assignedClassId: assignment.classId } : {}),
+            }
+          : p
+      )
+    );
+    setEditingTeacherId(null);
+
+    try {
+      // send backward-compatible payload; send assignedYear as string (same shape as Teacher)
+      const payload: any = {
+        assignedProgram: assignment.program || null,
+        assignedBranch: assignment.branch || null,
+        assignedYear: assignment.yearId !== null ? String(assignment.yearId) : null,
+      };
+      if (assignment.classId) payload.assignedClassId = assignment.classId;
+      await assignTeacherAdmin(teacherId, payload);
+    } catch (err) {
+      console.error(err);
+      await load(); // revert by reloading from server
+      alert("Failed to save assignment — changes reverted.");
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setLoading(true);
+      const created = await uploadTeachersCsv(file);
+      if (Array.isArray(created)) {
+        setTeachers((prev) => [...created, ...prev]);
+      } else {
+        await load();
+      }
+      alert("CSV uploaded successfully.");
+    } catch (err: any) {
+      console.error(err);
+      alert("Upload failed: " + (err?.message || err));
+    } finally {
+      setLoading(false);
+      (e.target as HTMLInputElement).value = "";
+    }
+  };
+
+  const openDetails = async (teacherId: string) => {
+    try {
+      setDetailsLoading(true);
+      setDetailsTeacher(null);
+      setTeacherClasses([]);
+      const t = await fetchTeacherById(teacherId);
+      setDetailsTeacher(t);
+      const classes = await fetchClassesByTeacherId(teacherId);
+      setTeacherClasses(classes || []);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to load teacher details");
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
+
+  const handleAssignTeacherToSubject = async (teacherId: string) => {
+    if (!subjectIdInput) return alert("Please enter subject id.");
+    if (!teacherClasses || teacherClasses.length === 0) return alert("No classes available for this teacher.");
+
+    // default to first class — you can let user choose a class in the UI easily
+    const classId = teacherClasses[0].id;
+    if (!classId) return alert("No valid class id found.");
+
+    try {
+      setAssignLoading(true);
+      await assignTeacherToSubjectForClass(subjectIdInput, teacherId, classId);
+      alert("Teacher assigned to subject for class successfully.");
+      // refresh details to reflect changes
+      await openDetails(teacherId);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to assign teacher to subject.");
+    } finally {
+      setAssignLoading(false);
+      setSubjectIdInput("");
+    }
+  };
+
+  // filter + paginate
+  const filtered = teachers.filter((t) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return [t.name, t.email, (t.department as any), t.id].some((x) => (x || "").toString().toLowerCase().includes(q));
+  });
+  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const slice = filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+
   return (
     <div className="p-6 bg-white rounded-lg shadow dark:bg-gray-800 dark:text-gray-100">
-      <h2 className="text-2xl font-semibold mb-4">Teachers Management</h2>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-semibold">Teacher List</h3>
-        <input
-          type="file"
-          accept=".csv"
-          onChange={handleFileUpload}
-          className="hidden"
-          id="upload-teachers-csv"
-        />
-        <label
-          htmlFor="upload-teachers-csv"
-          className="bg-blue-600 text-white px-4 py-2 rounded-md cursor-pointer hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800"
-        >
-          Upload Teachers CSV
-        </label>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-2xl font-semibold">Teachers</h2>
+          <p className="text-sm text-gray-500">Manage teacher records and admin assignments</p>
+        </div>
+
+        <div className="flex gap-2 items-center">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search by name, email, id..."
+            className="border rounded px-3 py-2"
+          />
+
+          <input id="upload-teachers-csv" type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+          <label htmlFor="upload-teachers-csv" className="bg-blue-600 text-white px-4 py-2 rounded-md cursor-pointer hover:bg-blue-700">
+            Upload CSV
+          </label>
+
+          <button onClick={load} className="bg-gray-200 px-3 py-2 rounded">
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {loading && <div className="mb-4 text-sm">Loading...</div>}
+      {error && <div className="mb-4 text-sm text-red-500">{error}</div>}
 
       <div className="overflow-x-auto">
         <table className="min-w-full bg-white border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
           <thead>
             <tr>
-              <th className="py-2 px-4 border-b">ID</th>
-              <th className="py-2 px-4 border-b">Name</th>
-              <th className="py-2 px-4 border-b">Email</th>
-              <th className="py-2 px-4 border-b">Department</th>
-              <th className="py-2 px-4 border-b">Admin Assignment</th>
-              <th className="py-2 px-4 border-b">Actions</th>
+              <th className="py-2 px-3 border-b text-left">ID</th>
+              <th className="py-2 px-3 border-b text-left">Name</th>
+              <th className="py-2 px-3 border-b text-left">Email</th>
+              <th className="py-2 px-3 border-b text-left">Dept</th>
+              <th className="py-2 px-3 border-b text-left">Admin Assignment</th>
+              <th className="py-2 px-3 border-b text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {teachers.map((teacher) => (
-              <tr key={teacher.id}>
-                <td className="py-2 px-4 border-b">{teacher.id}</td>
-                <td className="py-2 px-4 border-b">{teacher.name}</td>
-                <td className="py-2 px-4 border-b">{teacher.email}</td>
-                <td className="py-2 px-4 border-b">{teacher.department}</td>
-                <td className="py-2 px-4 border-b text-sm">
-                  {teacher.assignedProgram && `P: ${teacher.assignedProgram}`}<br/>
-                  {teacher.assignedBranch && `B: ${teacher.assignedBranch}`}<br/>
-                  {teacher.assignedYear && `Y: ${teacher.assignedYear}`}<br/>
-                  {teacher.assignedSection && `S: ${teacher.assignedSection}`}
-                  {!teacher.assignedProgram && !teacher.assignedBranch && !teacher.assignedYear && !teacher.assignedSection && "N/A"}
+            {slice.map((t) => (
+              <tr key={t.id} className="odd:bg-gray-50 even:bg-white dark:odd:bg-gray-700 dark:even:bg-gray-800">
+                <td className="py-2 px-3 border-b">{t.id}</td>
+                <td className="py-2 px-3 border-b">{t.name}</td>
+                <td className="py-2 px-3 border-b">{t.email || "-"}</td>
+                <td className="py-2 px-3 border-b">{t.department || "-"}</td>
+                <td className="py-2 px-3 border-b text-sm">
+                  {t.assignedProgram ? `P: ${t.assignedProgram}` : ""}
+                  {t.assignedBranch ? (
+                    <>
+                      <br />
+                      B: {t.assignedBranch}
+                    </>
+                  ) : null}
+                  {t.assignedYear ? (
+                    <>
+                      <br />
+                      Y: {String(t.assignedYear)}
+                    </>
+                  ) : null}
+                  {(t as any).assignedClassId ? (
+                    <>
+                      <br />
+                      Class: {(t as any).assignedClassId}
+                    </>
+                  ) : null}
+                  {!t.assignedProgram && !t.assignedBranch && !t.assignedYear && !(t as any).assignedClassId && <span>N/A</span>}
                 </td>
-                <td className="py-2 px-4 border-b">
-                  <button
-                    onClick={() => handleAdminAssignClick(teacher)}
-                    className="text-blue-600 hover:underline text-sm"
-                  >
-                    Edit Admin Assign
+                <td className="py-2 px-3 border-b">
+                  <button onClick={() => handleOpenAssign(t)} className="text-blue-600 hover:underline mr-2">
+                    Edit Assign
+                  </button>
+                  <button onClick={() => openDetails(t.id)} className="text-green-600 hover:underline">
+                    View Details
                   </button>
                 </td>
               </tr>
             ))}
+            {slice.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-4 text-center text-sm text-gray-500">
+                  No teachers found
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      {/* Admin Assignment Modal */}
-      {adminEditingTeacherId && (
+      <div className="flex items-center justify-between mt-4">
+        <div className="text-sm text-gray-500">
+          Showing {(page - 1) * pageSize + 1} - {Math.min(page * pageSize, filtered.length)} of {filtered.length}
+        </div>
+        <div className="flex gap-2">
+          <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1 border rounded disabled:opacity-50">
+            Prev
+          </button>
+          <div className="px-3 py-1 border rounded">
+            {page} / {pages}
+          </div>
+          <button disabled={page >= pages} onClick={() => setPage((p) => Math.min(p + 1, pages))} className="px-3 py-1 border rounded disabled:opacity-50">
+            Next
+          </button>
+        </div>
+      </div>
+
+      {/* Assignment modal */}
+      {editingTeacherId && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md dark:bg-gray-700 dark:text-gray-100">
-            <h3 className="text-xl font-bold mb-4">
-              Edit Admin Assignment for: {teachers.find(t => t.id === adminEditingTeacherId)?.name}
-            </h3>
-            <div className="mb-4">
-              <label className="block mb-2">Program</label>
+            <h3 className="text-lg font-bold mb-4">Edit Admin Assignment</h3>
+
+            <div className="mb-3">
+              <label className="block mb-1">Program</label>
               <select
-                value={currentAdminAssignment.program}
-                onChange={(e) => setCurrentAdminAssignment({ ...currentAdminAssignment, program: e.target.value, branch: '' })}
+                value={assignment.program}
+                onChange={(e) => {
+                  setAssignment((a) => ({ ...a, program: e.target.value, branch: "", yearId: null, classId: null }));
+                }}
                 className="w-full border rounded px-3 py-2"
               >
                 <option value="">Select Program</option>
-                {mockPrograms.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                {programs.map((p) => (
+                  <option key={p.id} value={p.name}>
+                    {p.name}
+                  </option>
+                ))}
               </select>
             </div>
-            {currentAdminAssignment.program && (
-              <div className="mb-4">
-                <label className="block mb-2">Branch</label>
-                <select
-                  value={currentAdminAssignment.branch}
-                  onChange={(e) => setCurrentAdminAssignment({ ...currentAdminAssignment, branch: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                >
-                  <option value="">Select Branch</option>
-                  {mockBranches.filter(b => b.programId === mockPrograms.find(p => p.name === currentAdminAssignment.program)?.id)
-                    .map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
-                </select>
-              </div>
-            )}
-            <div className="mb-4">
-              <label className="block mb-2">Year</label>
+
+            <div className="mb-3">
+              <label className="block mb-1">Year</label>
               <select
-                value={currentAdminAssignment.year}
-                onChange={(e) => setCurrentAdminAssignment({ ...currentAdminAssignment, year: e.target.value })}
+                value={assignment.yearId ?? ""}
+                onChange={(e) => setAssignment((a) => ({ ...a, yearId: e.target.value ? Number(e.target.value) : null }))}
                 className="w-full border rounded px-3 py-2"
+                disabled={!assignment.program}
               >
                 <option value="">Select Year</option>
-                {years.map(y => <option key={y} value={y}>{y}</option>)}
+                {yearsList.map((y) => (
+                  <option key={y.id} value={y.id}>
+                    {y.number ?? y.label ?? `Year ${y.id}`}
+                  </option>
+                ))}
               </select>
             </div>
-            <div className="mb-4">
-              <label className="block mb-2">Section</label>
+
+            <div className="mb-3">
+              <label className="block mb-1">Branch</label>
               <select
-                value={currentAdminAssignment.section}
-                onChange={(e) => setCurrentAdminAssignment({ ...currentAdminAssignment, section: e.target.value })}
+                value={assignment.branch}
+                onChange={(e) => setAssignment((a) => ({ ...a, branch: e.target.value }))}
                 className="w-full border rounded px-3 py-2"
+                disabled={assignment.yearId === null}
               >
-                <option value="">Select Section</option>
-                {sections.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="">Select Branch</option>
+                {branches.map((b) => (
+                  <option key={b.id ?? b.name} value={b.name ?? b.id}>
+                    {b.name ?? b.branchName ?? b.label}
+                  </option>
+                ))}
               </select>
             </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setAdminEditingTeacherId(null)}
-                className="bg-gray-300 px-4 py-2 rounded"
+
+            <div className="mb-3">
+              <label className="block mb-1">Select Class</label>
+              <select
+                value={assignment.classId ?? ""}
+                onChange={(e) => setAssignment((a) => ({ ...a, classId: e.target.value || null }))}
+                className="w-full border rounded px-3 py-2"
+                disabled={!assignment.branch}
               >
+                <option value="">Select Class</option>
+                {classesForSelection.map((c) => (
+                  <option key={c.id ?? c.name} value={c.id ?? c.name}>
+                    {c.name ?? c.className ?? c.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingTeacherId(null)} className="bg-gray-300 px-4 py-2 rounded">
                 Cancel
               </button>
-              <button
-                onClick={() => handleSaveAdminAssignment(adminEditingTeacherId!)}
-                className="bg-blue-600 text-white px-4 py-2 rounded"
-              >
+              <button onClick={() => handleSaveAssignment(editingTeacherId!)} className="bg-blue-600 text-white px-4 py-2 rounded">
                 Save
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Details modal */}
+      {detailsTeacher && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg dark:bg-gray-700 dark:text-gray-100">
+            <div className="flex justify-between items-start">
+              <h3 className="text-lg font-bold">Teacher Details</h3>
+              <button onClick={() => { setDetailsTeacher(null); setTeacherClasses([]); }} className="text-gray-500">
+                Close
+              </button>
+            </div>
+
+            {detailsLoading ? (
+              <div className="py-6">Loading details...</div>
+            ) : (
+              <div>
+                <div className="mt-3 mb-4">
+                  <strong>{detailsTeacher?.name}</strong>
+                  <div className="text-sm text-gray-500">{detailsTeacher?.email}</div>
+                  <div className="text-sm">Dept: {detailsTeacher?.department || "—"}</div>
+                </div>
+
+                <div className="mb-4">
+                  <h4 className="font-medium">Classes</h4>
+                  {teacherClasses.length === 0 ? (
+                    <div className="text-sm text-gray-500">No classes found for this teacher.</div>
+                  ) : (
+                    <ul className="list-disc ml-6 text-sm">
+                      {teacherClasses.map((c) => (
+                        <li key={c.id}>{c.name || c.title || `Class ${c.id}`}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <h4 className="font-medium">Assign to Subject (quick)</h4>
+                  <div className="flex gap-2">
+                    <input placeholder="Subject ID" value={subjectIdInput} onChange={(e) => setSubjectIdInput(e.target.value)} className="border px-3 py-2 rounded w-full" />
+                    <button disabled={assignLoading} onClick={() => handleAssignTeacherToSubject(detailsTeacher!.id)} className="bg-indigo-600 text-white px-4 py-2 rounded">
+                      {assignLoading ? "Assigning..." : "Assign"}
+                    </button>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2">This picks the first class found for the teacher. Extend to allow choosing a class.</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
-};
-
-export default TeachersContent;
+}
