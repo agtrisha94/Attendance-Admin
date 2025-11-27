@@ -1,4 +1,4 @@
-// components/admin/TeachersContent.tsx
+// src/components/admin/TeachersContent.tsx
 "use client";
 import React, { useEffect, useState } from "react";
 import {
@@ -19,6 +19,9 @@ import { fetchBranchesByAcademicYear } from "@/services/fetchBranches.service";
 import { fetchClassesByBranch } from "@/services/fetchclasses.service";
 
 import { uploadExcel } from "@/services/import.service"; // support Excel (.xlsx) uploads
+
+// event bus for cross-component sync
+import { AppEvents } from "@/lib/events";
 
 export default function TeachersContent() {
   // data
@@ -93,6 +96,52 @@ export default function TeachersContent() {
   useEffect(() => {
     load();
   }, []);
+
+  // --- Listen for cross-component assignment updates ---
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      try {
+        const detail = (ev as CustomEvent).detail;
+        if (!detail || !detail.teacherId) return;
+        const teacherId: string = detail.teacherId;
+        const assignmentUpdate = detail.assignment || {};
+
+        setTeachers((prev) =>
+          prev.map((t) =>
+            t.id === teacherId
+              ? {
+                  ...t,
+                  // merge assignmentUpdate fields if present; otherwise preserve existing
+                  assignedProgram:
+                    assignmentUpdate.assignedProgram !== undefined
+                      ? assignmentUpdate.assignedProgram
+                      : (t as any).assignedProgram ?? null,
+                  assignedBranch:
+                    assignmentUpdate.assignedBranch !== undefined
+                      ? assignmentUpdate.assignedBranch
+                      : (t as any).assignedBranch ?? null,
+                  assignedYear:
+                    assignmentUpdate.assignedYear !== undefined
+                      ? assignmentUpdate.assignedYear
+                      : (t as any).assignedYear ?? null,
+                  assignedClassId:
+                    assignmentUpdate.assignedClassId !== undefined
+                      ? assignmentUpdate.assignedClassId
+                      : (t as any).assignedClassId ?? null,
+                }
+              : t
+          )
+        );
+      } catch (e) {
+        console.error("assignments:updated handler error", e);
+      }
+    };
+
+    AppEvents.addEventListener("assignments:updated", handler as EventListener);
+    return () => {
+      AppEvents.removeEventListener("assignments:updated", handler as EventListener);
+    };
+  }, []); // run once on mount
 
   // --- load programs for modal on mount ---
   useEffect(() => {

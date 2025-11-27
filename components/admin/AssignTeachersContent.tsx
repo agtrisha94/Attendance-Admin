@@ -50,7 +50,6 @@ const AssignTeachersContent: React.FC = () => {
         setFetchError(null);
 
         const [teachersRes, programsRes] = await Promise.all([fetchTeachers(), fetchPrograms()]);
-
         if (!mounted) return;
         setTeachers(teachersRes);
         setPrograms(programsRes);
@@ -76,7 +75,6 @@ const AssignTeachersContent: React.FC = () => {
 
     try {
       const res = await fetchYearsByProgramName(programName);
-      // expected shape per item: { id, yearNumber?, yearName?, label? } — be flexible in render
       setYearsByProgram((prev) => ({ ...prev, [programName]: res }));
       return res;
     } catch (err) {
@@ -138,7 +136,6 @@ const AssignTeachersContent: React.FC = () => {
       if (field === "programId") {
         const num = value === "" || value === undefined ? undefined : Number(value);
         const newProgramId = Number.isNaN(num) ? undefined : num;
-        const prevProgramName = prevRow.programName;
         row.programId = newProgramId;
         row.programName = programs.find((p) => p.id === row.programId)?.name;
 
@@ -148,17 +145,7 @@ const AssignTeachersContent: React.FC = () => {
         row.classId = undefined;
         row.subjectId = undefined;
 
-        // clear cached years for previous program (optional)
-        if (prevProgramName) {
-          setYearsByProgram((y) => {
-            const copy = { ...y };
-            delete copy[prevProgramName];
-            return copy;
-          });
-        }
-
-        // clear other caches
-        setBranchesByYear({});
+        // clear caches related to this row
         setClassesByRow((c) => {
           const copy = { ...c };
           delete copy[row.key];
@@ -169,6 +156,13 @@ const AssignTeachersContent: React.FC = () => {
           delete copy[row.key];
           return copy;
         });
+
+        // proactively load years for the selected program (so Year select populates immediately)
+        if (row.programName) {
+          loadYearsForProgram(row.programName).catch((e) =>
+            console.error("preload years failed", e)
+          );
+        }
       } else if (field === "year") {
         const num = value === "" || value === undefined ? undefined : Number(value);
         row.year = Number.isNaN(num) ? undefined : num;
@@ -186,6 +180,11 @@ const AssignTeachersContent: React.FC = () => {
           delete copy[row.key];
           return copy;
         });
+
+        // preload branches for that year
+        if (row.year) {
+          loadBranchesForYear(row.year).catch((e) => console.error("preload branches failed", e));
+        }
       } else if (field === "branchName") {
         row.branchName = value;
         row.classId = undefined;
@@ -200,6 +199,13 @@ const AssignTeachersContent: React.FC = () => {
           delete copy[row.key];
           return copy;
         });
+
+        // preload classes
+        if (row.programName && row.year && row.branchName) {
+          loadClassesForRow(row.key, row.programName, row.year, row.branchName).catch((e) =>
+            console.error("preload classes failed", e)
+          );
+        }
       } else if (field === "classId") {
         const num = value === "" || value === undefined ? undefined : Number(value);
         row.classId = Number.isNaN(num) ? undefined : num;
@@ -210,6 +216,11 @@ const AssignTeachersContent: React.FC = () => {
           delete copy[row.key];
           return copy;
         });
+
+        // preload subjects for class
+        if (row.classId) {
+          loadSubjectsForRow(row.key, row.classId).catch((e) => console.error("preload subjects failed", e));
+        }
       } else if (field === "subjectId") {
         row.subjectId = value;
       } else {
@@ -240,13 +251,11 @@ const AssignTeachersContent: React.FC = () => {
 
   /* ====== Classes fetching (on-demand by row) ====== */
   const loadClassesForRow = async (rowKey: string, programName?: string, year?: number, branchName?: string) => {
-    // require programName, yearNumber, branchName
     if (!programName || !year || !branchName) {
       setClassesByRow((prev) => ({ ...prev, [rowKey]: [] }));
       return [];
     }
 
-    // avoid duplicate fetch
     if (classesByRow[rowKey]?.length) return classesByRow[rowKey];
 
     try {
@@ -314,6 +323,13 @@ const AssignTeachersContent: React.FC = () => {
         });
 
         try {
+          // call assign API (subjectId, teacherId, classId)
+          console.log("Assigning:", {
+            subjectId: row.subjectId,
+            teacherId,
+            classId: row.classId,
+          });
+
           await assignTeacherToSubjectForClass(row.subjectId as string, teacherId, row.classId as number);
 
           setAssignments((prev) => {
@@ -379,7 +395,15 @@ const AssignTeachersContent: React.FC = () => {
                   {/* Program */}
                   <select
                     value={assign.programId ?? ""}
-                    onChange={(e) => handleChange(teacher.id, idx, "programId", e.target.value === "" ? "" : Number(e.target.value))}
+                    onChange={async (e) => {
+                      const value = e.target.value === "" ? "" : Number(e.target.value);
+                      handleChange(teacher.id, idx, "programId", value);
+                      // after change, immediately load years for the selected program name
+                      const programName = programs.find((p) => p.id === Number(value))?.name;
+                      if (programName) {
+                        await loadYearsForProgram(programName);
+                      }
+                    }}
                     className="border rounded px-2 py-1"
                   >
                     <option value="">Program</option>
@@ -398,9 +422,13 @@ const AssignTeachersContent: React.FC = () => {
                       handleChange(teacher.id, idx, "year", val === "" ? undefined : Number(val));
                       if (val) await loadBranchesForYear(Number(val)); // pre-load branches
                     }}
-                    onFocus={() => assign.programName && loadYearsForProgram(assign.programName)}
+                    onFocus={() => {
+                      // ensure we load years based on assigned program (or programId)
+                      const pName = assign.programName ?? programs.find((p) => p.id === assign.programId)?.name;
+                      if (pName) loadYearsForProgram(pName).catch((e) => console.error(e));
+                    }}
                     className="border rounded px-2 py-1"
-                    disabled={!assign.programName}
+                    disabled={!assign.programId && !assign.programName}
                   >
                     <option value="">Year</option>
                     {(assign.programName ? yearsByProgram[assign.programName] ?? [] : []).map((y: any) => {
@@ -417,7 +445,15 @@ const AssignTeachersContent: React.FC = () => {
                   {/* Branch */}
                   <select
                     value={assign.branchName ?? ""}
-                    onChange={(e) => handleChange(teacher.id, idx, "branchName", e.target.value)}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      handleChange(teacher.id, idx, "branchName", val);
+                      // preload classes for the row
+                      const pName = assign.programName ?? programs.find((p) => p.id === assign.programId)?.name;
+                      if (pName && assign.year && val) {
+                        await loadClassesForRow(assign.key, pName, assign.year, val);
+                      }
+                    }}
                     className="border rounded px-2 py-1"
                     disabled={!assign.year}
                   >
@@ -432,8 +468,19 @@ const AssignTeachersContent: React.FC = () => {
                   {/* Class */}
                   <select
                     value={assign.classId ?? ""}
-                    onChange={(e) => handleChange(teacher.id, idx, "classId", e.target.value === "" ? "" : Number(e.target.value))}
-                    onFocus={() => loadClassesForRow(assign.key, assign.programName, assign.year, assign.branchName)}
+                    onChange={async (e) => {
+                      const value = e.target.value === "" ? "" : Number(e.target.value);
+                      handleChange(teacher.id, idx, "classId", value);
+                      if (value) await loadSubjectsForRow(assign.key, Number(value));
+                    }}
+                    onFocus={() => {
+                      const pName = assign.programName ?? programs.find((p) => p.id === assign.programId)?.name;
+                      if (pName && assign.year && assign.branchName) {
+                        loadClassesForRow(assign.key, pName, assign.year, assign.branchName).catch((e) =>
+                          console.error("classes onFocus failed", e)
+                        );
+                      }
+                    }}
                     className="border rounded px-2 py-1"
                     disabled={!assign.programId || !assign.branchName || !assign.year}
                   >
