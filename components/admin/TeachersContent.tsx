@@ -18,6 +18,8 @@ import { fetchYearsByProgramName } from "@/services/year.service";
 import { fetchBranchesByAcademicYear } from "@/services/fetchBranches.service";
 import { fetchClassesByBranch } from "@/services/fetchclasses.service";
 
+import { uploadExcel } from "@/services/import.service"; // support Excel (.xlsx) uploads
+
 export default function TeachersContent() {
   // data
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -63,6 +65,11 @@ export default function TeachersContent() {
   // pagination
   const pageSize = 12;
   const [page, setPage] = useState(1);
+
+  // file upload state (CSV & Excel unified)
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
 
   // attach axios interceptor (token refresh) once on client
   useEffect(() => {
@@ -183,7 +190,7 @@ export default function TeachersContent() {
   const handleSaveAssignment = async (teacherId: string) => {
     // optimistic update in local list — ensure assignedYear is string to match Teacher type
     setTeachers((prev) =>
-      prev.map((p) =>
+      prev.map((p: Teacher) =>
         p.id === teacherId
           ? {
               ...p,
@@ -213,24 +220,100 @@ export default function TeachersContent() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      setLoading(true);
-      const created = await uploadTeachersCsv(file);
-      if (Array.isArray(created)) {
-        setTeachers((prev) => [...created, ...prev]);
-      } else {
-        await load();
+  // Unified file chooser change handler
+  const handleUnifiedFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    if (!f) return;
+
+    const name = (f.name || "").toLowerCase();
+    const mime = f.type || "";
+
+    setSelectedFile(f);
+    setSelectedFileName(f.name);
+
+    // If CSV, keep as CSV; if Excel, we'll use uploadExcel flow on upload click
+    if (name.endsWith(".csv") || mime.includes("csv")) {
+      // keep selected; we'll upload via uploadTeachersCsv when user triggers upload
+    } else if (name.endsWith(".xlsx") || name.endsWith(".xls") || mime.includes("spreadsheet") || mime.includes("excel")) {
+      // Excel selected; upload on user click via uploadExcel
+    } else {
+      alert("Unsupported file type. Use .csv or .xlsx/.xls");
+      setSelectedFile(null);
+      setSelectedFileName(null);
+      e.currentTarget.value = "";
+    }
+  };
+
+  // Trigger upload (CSV or Excel depending on selectedFile)
+  const triggerUpload = async () => {
+    if (!selectedFile) return alert("No file selected.");
+    const name = (selectedFile.name || "").toLowerCase();
+    const mime = selectedFile.type || "";
+
+    if (name.endsWith(".csv") || mime.includes("csv")) {
+      // CSV flow
+      try {
+        setLoading(true);
+        setUploadProgress(10);
+        const created = await uploadTeachersCsv(selectedFile);
+        // uploadTeachersCsv may return array of created teachers or a status; handle both
+        if (Array.isArray(created)) {
+          setTeachers((prev) => [...created, ...prev]);
+        } else {
+          await load();
+        }
+        alert("CSV uploaded successfully.");
+      } catch (err: any) {
+        console.error("uploadTeachersCsv err:", err);
+        alert("CSV upload failed: " + (err?.message || String(err)));
+      } finally {
+        setLoading(false);
+        setUploadProgress(0);
+        setSelectedFile(null);
+        setSelectedFileName(null);
+        const inp = document.getElementById("upload-teachers-file") as HTMLInputElement | null;
+        if (inp) inp.value = "";
       }
-      alert("CSV uploaded successfully.");
-    } catch (err: any) {
-      console.error(err);
-      alert("Upload failed: " + (err?.message || err));
-    } finally {
-      setLoading(false);
-      (e.target as HTMLInputElement).value = "";
+    } else if (name.endsWith(".xlsx") || name.endsWith(".xls") || mime.includes("spreadsheet") || mime.includes("excel")) {
+      // Excel flow using uploadExcel wrapper (same endpoint used by Students)
+      try {
+        setLoading(true);
+        setUploadProgress(5);
+        const progressCb = (p: number) => setUploadProgress(p);
+        const resp: any = await uploadExcel(selectedFile, progressCb);
+        // resp expected to contain { students:..., teachers:... } as per server import
+        if (resp?.teachers?.createdRows && resp.teachers.createdRows.length > 0) {
+          // map created teachers into UI quickly if possible
+          const created: Teacher[] = resp.teachers.createdRows.map((r: any) => {
+            return {
+              id: r.teacher?.id ?? `new-${Math.random()}`,
+              name: r.teacher?.name ?? "",
+              email: r.teacher?.email ?? null,
+              department: null,
+              assignedProgram: null,
+              assignedBranch: null,
+              assignedYear: null,
+            } as Teacher;
+          });
+          setTeachers((prev) => [...created, ...prev]);
+        } else {
+          // fallback: reload
+          await load();
+        }
+        alert(`Excel import finished. Teachers created: ${resp?.teachers?.created ?? 0}`);
+      } catch (err: any) {
+        console.error("uploadExcel err:", err);
+        alert("Excel upload failed: " + (err?.message || String(err)));
+      } finally {
+        setLoading(false);
+        setUploadProgress(0);
+        setSelectedFile(null);
+        setSelectedFileName(null);
+        const inp = document.getElementById("upload-teachers-file") as HTMLInputElement | null;
+        if (inp) inp.value = "";
+      }
+    } else {
+      alert("Unsupported file type selected.");
     }
   };
 
@@ -311,7 +394,7 @@ export default function TeachersContent() {
   };
 
   // filter + paginate
-  const filtered = teachers.filter((t) => {
+  const filtered = teachers.filter((t: Teacher) => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return [t.name, t.email, (t.department as any), t.id].some((x) => (x || "").toString().toLowerCase().includes(q));
@@ -343,16 +426,45 @@ export default function TeachersContent() {
             Add Teacher
           </button>
 
-          <input id="upload-teachers-csv" type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-          <label htmlFor="upload-teachers-csv" className="bg-blue-600 text-white px-4 py-2 rounded-md cursor-pointer hover:bg-blue-700">
-            Upload CSV
+          {/* Unified file chooser for teachers: CSV & Excel */}
+          <input
+            id="upload-teachers-file"
+            type="file"
+            accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            onChange={handleUnifiedFileChange}
+            className="hidden"
+          />
+          <label htmlFor="upload-teachers-file" className="bg-blue-600 text-white px-4 py-2 rounded-md cursor-pointer hover:bg-blue-700">
+            Choose File
           </label>
+
+          <button
+            onClick={triggerUpload}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md ml-2 hover:bg-blue-700"
+            disabled={!selectedFile || loading}
+            title={!selectedFile ? "Select a .csv or .xlsx file first" : "Upload selected file"}
+          >
+            Upload
+          </button>
 
           <button onClick={load} className="bg-gray-200 px-3 py-2 rounded">
             Refresh
           </button>
         </div>
       </div>
+
+      {selectedFileName && (
+        <div className="mb-2 text-sm text-gray-600">Selected: <strong>{selectedFileName}</strong></div>
+      )}
+
+      {uploadProgress > 0 && (
+        <div className="mb-3 w-full max-w-lg">
+          <div className="w-full h-2 bg-gray-200 rounded overflow-hidden">
+            <div className="h-2 bg-indigo-600" style={{ width: `${uploadProgress}%`, transition: "width 200ms ease" }} />
+          </div>
+          <div className="text-xs text-gray-500 mt-1">{uploadProgress}%</div>
+        </div>
+      )}
 
       {loading && <div className="mb-4 text-sm">Loading...</div>}
       {error && <div className="mb-4 text-sm text-red-500">{error}</div>}
@@ -370,7 +482,7 @@ export default function TeachersContent() {
             </tr>
           </thead>
           <tbody>
-            {slice.map((t) => (
+            {slice.map((t: Teacher) => (
               <tr key={t.id} className="odd:bg-gray-50 even:bg-white dark:odd:bg-gray-700 dark:even:bg-gray-800">
                 <td className="py-2 px-3 border-b">{t.id}</td>
                 <td className="py-2 px-3 border-b">{t.name}</td>

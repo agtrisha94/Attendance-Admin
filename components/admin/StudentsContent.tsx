@@ -7,12 +7,14 @@ import { fetchYearsByProgramName } from "@/services/year.service";
 import { fetchBranchesByAcademicYear } from "@/services/fetchBranches.service";
 import { fetchClassesByBranch } from "@/services/fetchclasses.service";
 import api from "@/lib/api";
+import { uploadExcel } from "@/services/import.service"; // frontend service
 import { JSX } from "react/jsx-runtime";
 
 /**
  * Improved UI version of StudentsContent
- * - modern cards, drag & drop csv upload, progress bar, toasts
- * - retains all previous functionality
+ * - unified file chooser for CSV + Excel (.xlsx/.xls)
+ * - drag & drop accepts both CSV & Excel
+ * - routes files to CSV or Excel flow based on extension/MIME
  */
 
 type StudentRow = {
@@ -52,6 +54,7 @@ export default function StudentsContent(): JSX.Element {
     students: false,
     manualAdd: false,
     csvUpload: false,
+    excelUpload: false,
   });
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -485,16 +488,40 @@ export default function StudentsContent(): JSX.Element {
     reader.readAsText(file);
   };
 
-  // drag & drop handlers
+  // drag & drop handlers (now accept CSV and Excel)
   const handleDrop = (ev: React.DragEvent) => {
     ev.preventDefault();
     ev.stopPropagation();
     setDragActive(false);
     const f = ev.dataTransfer.files?.[0] ?? null;
-    if (f && f.type.includes("csv") || f.name.endsWith(".csv")) {
+    if (!f) {
+      setToast({ type: "error", text: "No file dropped." });
+      setTimeout(() => setToast(null), 2000);
+      return;
+    }
+
+    const name = (f.name || "").toLowerCase();
+    const mime = f.type || "";
+
+    if (name.endsWith(".csv") || mime.includes("csv")) {
       handleCsvFile(f);
+      setCsvFile(f);
+      setCsvFileName(f.name);
+      // clear excel selection
+      setExcelFile(null);
+      setExcelFileName(null);
+    } else if (name.endsWith(".xlsx") || name.endsWith(".xls") || mime.includes("spreadsheet") || mime.includes("excel")) {
+      // route to excel flow
+      setExcelFile(f);
+      setExcelFileName(f.name);
+      // clear csv preview
+      setCsvFile(null);
+      setCsvFileName(null);
+      setCsvPreviewRows([]);
+      setCsvRawPreview([]);
     } else {
-      setToast({ type: "error", text: "Please drop a valid CSV file." });
+      setToast({ type: "error", text: "Unsupported file type. Use .csv or .xlsx/.xls" });
+      setTimeout(() => setToast(null), 2500);
     }
   };
   const handleDragOver = (ev: React.DragEvent) => {
@@ -588,6 +615,8 @@ export default function StudentsContent(): JSX.Element {
         setCsvFileName(null);
         setCsvPreviewRows([]);
         setCsvRawPreview([]);
+        const input = document.getElementById("students-file-input") as HTMLInputElement | null;
+        if (input) input.value = "";
       } catch (bulkErr) {
         console.warn("bulk upload failed, falling back to single creates:", bulkErr);
         // fallback: post sequentially and update progress
@@ -617,6 +646,8 @@ export default function StudentsContent(): JSX.Element {
           setCsvFileName(null);
           setCsvPreviewRows([]);
           setCsvRawPreview([]);
+          const input = document.getElementById("students-file-input") as HTMLInputElement | null;
+          if (input) input.value = "";
         }
       }
     } catch (err) {
@@ -636,6 +667,60 @@ export default function StudentsContent(): JSX.Element {
     const file = csvFile;
     uploadCsvToServer(file);
   };
+
+  // ---------- EXCEL upload states ----------
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelFileName, setExcelFileName] = useState<string | null>(null);
+  const [excelResult, setExcelResult] = useState<any | null>(null);
+
+  // ---------- Excel upload handler ----------
+  async function uploadExcelToServer(file: File | null) {
+    setError(null);
+    setStatusMessage(null);
+    setCsvUploadPercent(0);
+    if (!file) {
+      setToast({ type: "error", text: "No Excel file selected." });
+      return;
+    }
+
+    try {
+      setLoading((s) => ({ ...s, excelUpload: true }));
+      // use frontend service which wraps api instance
+      const onProgress = (percent: number) => {
+        setCsvUploadPercent(percent);
+      };
+      const resp: any = await uploadExcel(file, onProgress); // uses src/services/import.service.ts
+      if (!resp || resp.error) {
+        setError(resp?.error || "Excel import failed");
+        setToast({ type: "error", text: resp?.error || "Excel import failed." });
+      } else {
+        setExcelResult(resp);
+        // Add created students (if any) into UI quickly
+        const studentsCreated = (resp?.students?.createdRows ?? []).map((r: any) => ({
+          id: r.student?.id ?? `new-${Math.random()}`,
+          name: r.student?.name ?? "",
+          roll: r.student?.enrollmentNumber ?? "",
+          email: r.student?.email ?? "",
+        }));
+        if (studentsCreated.length > 0) setStudents((s) => [...studentsCreated.map(normalizeStudent), ...s]);
+
+        setToast({ type: "success", text: `Excel imported. Students created: ${resp?.students?.created ?? 0}` });
+        // clear file input
+        setExcelFile(null);
+        setExcelFileName(null);
+        const el = document.getElementById("students-file-input") as HTMLInputElement | null;
+        if (el) el.value = "";
+      }
+    } catch (err: any) {
+      console.error("uploadExcelToServer err:", err);
+      setError(err?.message ?? "Excel upload failed");
+      setToast({ type: "error", text: "Excel upload failed." });
+    } finally {
+      setLoading((s) => ({ ...s, excelUpload: false }));
+      setTimeout(() => setCsvUploadPercent(0), 1200);
+      setTimeout(() => setToast(null), 3500);
+    }
+  }
 
   // ---------- Manual add & CSV states UI helpers ----------
   useEffect(() => {
@@ -900,9 +985,9 @@ export default function StudentsContent(): JSX.Element {
             </div>
           </div>
 
-          {/* CSV Upload */}
+          {/* CSV & EXCEL Upload */}
           <div className="bg-white border rounded-lg p-4 shadow-sm">
-            <h2 className="text-sm font-semibold mb-3">Bulk Upload (CSV)</h2>
+            <h2 className="text-sm font-semibold mb-3">Bulk Upload</h2>
 
             <div
               onDrop={handleDrop}
@@ -919,23 +1004,53 @@ export default function StudentsContent(): JSX.Element {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21H3" />
                 </svg>
                 <div>
-                  <div className="text-sm font-medium">Drag & drop CSV here</div>
-                  <div className="text-xs text-gray-500">or click to choose file (columns: name,email,roll,group,program,year,branch,class)</div>
+                  <div className="text-sm font-medium">Drag & drop CSV or Excel (.xlsx) here</div>
+                  <div className="text-xs text-gray-500">or click to choose file (columns for CSV: name,email,roll,group,program,year,branch,class)</div>
                 </div>
               </div>
 
+              {/* Unified file chooser for CSV + Excel */}
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 className="sr-only"
-                id="students-csv-input"
-                onChange={(e) => handleCsvFile(e.target.files ? e.target.files[0] : null)}
+                id="students-file-input"
+                onChange={(e) => {
+                  const f = e.target.files ? e.target.files[0] : null;
+                  if (!f) return;
+
+                  const name = (f.name || "").toLowerCase();
+                  const mime = f.type || "";
+
+                  if (name.endsWith(".csv") || mime.includes("csv")) {
+                    // CSV selected
+                    handleCsvFile(f);
+                    setCsvFile(f);
+                    setCsvFileName(f.name);
+                    // clear excel selection
+                    setExcelFile(null);
+                    setExcelFileName(null);
+                  } else if (name.endsWith(".xlsx") || name.endsWith(".xls") || mime.includes("spreadsheet") || mime.includes("excel")) {
+                    // Excel selected
+                    setExcelFile(f);
+                    setExcelFileName(f.name);
+                    // clear csv selection
+                    setCsvFile(null);
+                    setCsvFileName(null);
+                    setCsvPreviewRows([]);
+                    setCsvRawPreview([]);
+                  } else {
+                    setToast({ type: "error", text: "Unsupported file type. Use .csv or .xlsx/.xls" });
+                    setTimeout(() => setToast(null), 2500);
+                  }
+                }}
               />
-              <label htmlFor="students-csv-input" className="mt-3 inline-block text-xs text-indigo-600 hover:underline cursor-pointer">
-                Choose a file
+              <label htmlFor="students-file-input" className="mt-3 inline-block text-xs text-indigo-600 hover:underline cursor-pointer">
+                Choose a CSV or Excel file
               </label>
 
-              {csvFileName && <div className="mt-3 text-xs text-gray-600">Selected: <strong>{csvFileName}</strong></div>}
+              {csvFileName && <div className="mt-3 text-xs text-gray-600">Selected CSV: <strong>{csvFileName}</strong></div>}
+              {excelFileName && <div className="mt-3 text-xs text-gray-600">Selected Excel: <strong>{excelFileName}</strong></div>}
 
               {csvRawPreview.length > 0 && (
                 <div className="mt-3 text-xs border rounded p-2 max-h-44 overflow-auto bg-gray-50">
@@ -974,9 +1089,11 @@ export default function StudentsContent(): JSX.Element {
                     setCsvFileName(null);
                     setCsvPreviewRows([]);
                     setCsvRawPreview([]);
-                    const input = document.getElementById("students-csv-input") as HTMLInputElement | null;
+                    setExcelFile(null);
+                    setExcelFileName(null);
+                    const input = document.getElementById("students-file-input") as HTMLInputElement | null;
                     if (input) input.value = "";
-                    setToast({ type: "info", text: "CSV cleared." });
+                    setToast({ type: "info", text: "Files cleared." });
                     setTimeout(() => setToast(null), 1200);
                   }}
                 >
@@ -984,16 +1101,56 @@ export default function StudentsContent(): JSX.Element {
                 </button>
               </div>
 
-              {csvUploadPercent > 0 && (
-                <div className="mt-3">
-                  <div className="w-full h-2 bg-gray-200 rounded overflow-hidden">
-                    <div className="h-2 bg-indigo-600 rounded" style={{ width: `${csvUploadPercent}%`, transition: "width 300ms ease" }} />
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">{csvUploadPercent}%</div>
+              {/* Excel upload controls (use unified chooser above) */}
+              <div className="mt-4 border-t pt-3 text-left">
+                <label className="block text-xs text-gray-600 mb-1">Excel (.xlsx) bulk import (Students & Teachers)</label>
+                {/* Note: we use the unified file input above; user can also click the "Choose a CSV or Excel file" label */}
+                <div className="mt-2 flex gap-2">
+                  <button
+                    className="flex-1 bg-blue-600 text-white py-2 rounded text-sm"
+                    onClick={() => uploadExcelToServer(excelFile)}
+                    disabled={loading.excelUpload || !excelFile}
+                  >
+                    {loading.excelUpload ? "Uploading..." : "Upload Excel"}
+                  </button>
+                  <button
+                    className="flex-1 bg-gray-50 border rounded py-2 text-sm"
+                    onClick={() => {
+                      setExcelFile(null);
+                      setExcelFileName(null);
+                      setExcelResult(null);
+                      const el = document.getElementById("students-file-input") as HTMLInputElement | null;
+                      if (el) el.value = "";
+                      setToast({ type: "info", text: "Excel cleared." });
+                      setTimeout(() => setToast(null), 1200);
+                    }}
+                  >
+                    Clear
+                  </button>
                 </div>
-              )}
 
-              <div className="mt-3 text-xs text-gray-500">Tip: small CSVs upload quickly. If you have many rows, the UI will show progress.</div>
+                {csvUploadPercent > 0 && (
+                  <div className="mt-3">
+                    <div className="w-full h-2 bg-gray-200 rounded overflow-hidden">
+                      <div className="h-2 bg-indigo-600 rounded" style={{ width: `${csvUploadPercent}%`, transition: "width 300ms ease" }} />
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">{csvUploadPercent}%</div>
+                  </div>
+                )}
+
+                {excelResult && (
+                  <div className="mt-3 text-xs text-gray-700">
+                    <div>Students created: {excelResult.students?.created ?? 0}</div>
+                    <div>Teachers created: {excelResult.teachers?.created ?? 0}</div>
+                    <details className="mt-2">
+                      <summary>View import errors</summary>
+                      <pre className="text-xs whitespace-pre-wrap">{JSON.stringify({ students: excelResult.students?.errors, teachers: excelResult.teachers?.errors }, null, 2)}</pre>
+                    </details>
+                  </div>
+                )}
+
+                <div className="mt-3 text-xs text-gray-500">Tip: small Excel files upload quickly. For very large files consider splitting or using dry-run first.</div>
+              </div>
             </div>
           </div>
 

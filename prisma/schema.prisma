@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Program {
+  id       Int        @id @default(autoincrement())
+  name     String     @unique
+  Semester Semester[]
+  sessions Session[]
+  years    Year[]
+}
+
+model Year {
+  id         Int         @id @default(autoincrement())
+  number     Int
+  programId  Int
+  program    Program     @relation(fields: [programId], references: [id])
+  yearTracks YearTrack[]
+}
+
+model Session {
+  id         Int         @id @default(autoincrement())
+  label      String      @unique
+  programId  Int
+  endDate    DateTime
+  startDate  DateTime
+  branches   Branch[]
+  Semester   Semester[]
+  program    Program     @relation(fields: [programId], references: [id])
+  yearTracks YearTrack[]
+}
+
+model YearTrack {
+  id        Int     @id @default(autoincrement())
+  sessionId Int
+  yearId    Int
+  session   Session @relation(fields: [sessionId], references: [id])
+  year      Year    @relation(fields: [yearId], references: [id])
+}
+
+model Branch {
+  id            Int              @id @default(autoincrement())
+  name          String
+  sessionId     Int
+  session       Session          @relation(fields: [sessionId], references: [id])
+  mentorships   Mentorship[]
+  semesters     Semester[]
+  students      Student[]
+  timetable     TimetableEntry[]
+  ElectiveGroup ElectiveGroup[]
+}
+
+model Semester {
+  id        Int             @id @default(autoincrement())
+  number    Int
+  branchId  Int?
+  programId Int?
+  sessionId Int?
+  classes   Class[]
+  electives ElectiveGroup[]
+  branch    Branch?         @relation(fields: [branchId], references: [id])
+  program   Program?        @relation(fields: [programId], references: [id])
+  session   Session?        @relation(fields: [sessionId], references: [id])
+  students  Student[]
+  subjects  Subject[]
+}
+
+model Class {
+  id             Int              @id @default(autoincrement())
+  name           String
+  semesterId     Int
+  semester       Semester         @relation(fields: [semesterId], references: [id])
+  Student        Student[]
+  SubjectTeacher SubjectTeacher[]
+  TimetableEntry TimetableEntry[]
+}
+
+model User {
+  id                 String         @id @default(uuid())
+  email              String         @unique
+  password           String
+  role               Role
+  studentId          String?        @unique
+  teacherId          String?        @unique
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  mustChangePassword Boolean        @default(false)
+  resetToken         String?
+  resetTokenExpiry   DateTime?
+  refreshTokens      RefreshToken[]
+  student            Student?       @relation("StudentUser", fields: [studentId], references: [id])
+  teacher            Teacher?       @relation("TeacherUser", fields: [teacherId], references: [id])
+}
+
+model Subject {
+  id              String      @id @default(uuid())
+  code            String      @unique
+  name            String
+  type            SubjectType // enum: THEORY or LAB
+  semesterId      Int
+  electiveGroupId String?
+  pairCode        String? // 🔹 NEW: groups theory-lab pairs (e.g., "CIE-306")
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  attendances        Attendance[]
+  studentElectives   StudentElective[]
+  electiveGroup      ElectiveGroup?       @relation(fields: [electiveGroupId], references: [id])
+  semester           Semester             @relation(fields: [semesterId], references: [id])
+  timetableEntries   TimetableEntry[]
+  subjectTeachers    SubjectTeacher[]
+  SubjectTeacherBase SubjectTeacherBase[]
+}
+
+model Teacher {
+  id             String           @id @default(uuid())
+  name           String
+  email          String           @unique
+  employeeNumber String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  marked         Attendance[]     @relation("MarkedAttendance")
+  mentorGroups   Mentorship[]
+  timetable      TimetableEntry[]
+  user           User?            @relation("TeacherUser")
+
+  subjectTeachers    SubjectTeacher[] // ✅ Many-to-many relation
+  SubjectTeacherBase SubjectTeacherBase[]
+}
+
+model SubjectTeacherBase {
+  id        String   @id @default(uuid())
+  subjectId String
+  teacherId String
+  createdAt DateTime @default(now())
+
+  subject Subject @relation(fields: [subjectId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  assignments SubjectTeacher[]
+
+  @@unique([subjectId, teacherId])
+}
+
+model SubjectTeacher {
+  id                   Int      @id @default(autoincrement())
+  subjectTeacherBaseId String
+  classId              Int?
+  active               Boolean? @default(true)
+
+  subjectTeacherBase SubjectTeacherBase @relation(fields: [subjectTeacherBaseId], references: [id])
+  class              Class?             @relation(fields: [classId], references: [id])
+  Subject            Subject?           @relation(fields: [subjectId], references: [id])
+  subjectId          String?
+  Teacher            Teacher?           @relation(fields: [teacherId], references: [id])
+  teacherId          String?
+
+  @@unique([subjectTeacherBaseId, classId])
+}
+
+model Student {
+  id               String            @id @default(uuid())
+  name             String
+  email            String            @unique
+  enrollmentNumber String            @unique
+  branchId         Int
+  semesterId       Int
+  classId          Int?
+  mentorshipId     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  attendances      Attendance[]
+  branch           Branch            @relation(fields: [branchId], references: [id])
+  mentorship       Mentorship?       @relation(fields: [mentorshipId], references: [id])
+  semester         Semester          @relation(fields: [semesterId], references: [id])
+  class            Class?            @relation(fields: [classId], references: [id]) // 👈 Relation
+  electives        StudentElective[]
+  user             User?             @relation("StudentUser")
+}
+
+model ElectiveGroup {
+  id         String    @id @default(uuid())
+  name       String
+  semesterId Int
+  branchId   Int
+  openFrom   DateTime?
+  openUntil  DateTime?
+
+  semester         Semester          @relation(fields: [semesterId], references: [id])
+  branch           Branch            @relation(fields: [branchId], references: [id]) // 🆕
+  studentElectives StudentElective[]
+  subjects         Subject[]
+}
+
+model StudentElective {
+  id         String        @id @default(uuid())
+  studentId  String
+  electiveId String
+  groupId    String
+  elective   Subject       @relation(fields: [electiveId], references: [id])
+  group      ElectiveGroup @relation(fields: [groupId], references: [id])
+  student    Student       @relation(fields: [studentId], references: [id])
+}
+
+model TimetableEntry {
+  id          String       @id @default(uuid())
+  day         DayOfWeek
+  startTime   String
+  endTime     String
+  subjectId   String
+  teacherId   String
+  branchId    Int
+  classId     Int?
+  room        String
+  attendances Attendance[]
+  class       Class?       @relation(fields: [classId], references: [id])
+  branch      Branch       @relation(fields: [branchId], references: [id])
+  subject     Subject      @relation(fields: [subjectId], references: [id])
+  teacher     Teacher      @relation(fields: [teacherId], references: [id])
+}
+
+model Attendance {
+  id               String           @id @default(uuid())
+  studentId        String
+  subjectId        String
+  timetableEntryId String
+  date             DateTime
+  status           AttendanceStatus
+  markedById       String
+  markedBy         Teacher          @relation("MarkedAttendance", fields: [markedById], references: [id])
+  student          Student          @relation(fields: [studentId], references: [id])
+  subject          Subject          @relation(fields: [subjectId], references: [id])
+  timetableEntry   TimetableEntry   @relation(fields: [timetableEntryId], references: [id])
+
+  @@index([studentId, subjectId, date])
+  @@index([subjectId, timetableEntryId])
+}
+
+model Mentorship {
+  id        String    @id @default(uuid())
+  teacherId String
+  branchId  Int
+  year      Int
+  semester  Int
+  branch    Branch    @relation(fields: [branchId], references: [id])
+  teacher   Teacher   @relation(fields: [teacherId], references: [id])
+  students  Student[]
+
+  @@unique([teacherId, branchId, year, semester])
+  @@index([branchId, year, semester])
+}
+
+model RefreshToken {
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  tokenHash String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum SubjectType {
+  THEORY
+  LAB
+}
