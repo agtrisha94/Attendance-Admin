@@ -39,7 +39,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Expecting access_token, refresh_token (optional), role, userId, teacherId, studentId
       const {
         access_token,
         refresh_token,
@@ -55,7 +54,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Persist for client usage
       localStorage.setItem("token", access_token);
       if (refresh_token) localStorage.setItem("refreshToken", refresh_token);
       if (role) localStorage.setItem("role", role);
@@ -64,11 +62,10 @@ export default function LoginPage() {
       if (studentId) localStorage.setItem("studentId", studentId);
       localStorage.setItem("isAuthenticated", "true");
 
-      // navigate based on role (optional)
       if (role === "ADMIN") router.push("/admin");
       else if (role === "TEACHER") router.push("/teacher");
       else if (role === "STUDENT") router.push("/student");
-      else router.push("/admin"); // fallback
+      else router.push("/admin");
 
     } catch (err: any) {
       console.error(err);
@@ -76,10 +73,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleFirstTimeUser = () => {
-    router.push("/(auth)/reset");
   };
 
   return (
@@ -97,7 +90,8 @@ export default function LoginPage() {
           )}
 
           <div className="space-y-6">
-            {/* Email Input */}
+
+            {/* Email */}
             <div className="flex flex-col gap-2">
               <label className="font-medium text-gray-700 dark:text-gray-300">
                 Email Address
@@ -111,12 +105,12 @@ export default function LoginPage() {
                   value={email}
                   placeholder="your.email@example.com"
                   onChange={(e) => setEmail(e.target.value)}
-                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-10 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
+                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-10 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
                 />
               </div>
             </div>
 
-            {/* Password Input */}
+            {/* Password */}
             <div className="flex flex-col gap-2">
               <label className="font-medium text-gray-700 dark:text-gray-300">
                 Password
@@ -127,11 +121,11 @@ export default function LoginPage() {
                   value={password}
                   placeholder="password"
                   onChange={(e) => setPassword(e.target.value)}
-                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent pr-10 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
+                  className="bg-gray-50 border border-gray-300 rounded-md w-full py-2 px-4 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-green-500 pr-10 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-200"
                 />
                 <button
                   type="button"
-                  className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  className="absolute right-3 top-2.5 text-gray-500 dark:text-gray-400"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -139,7 +133,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Login Button */}
+            {/* Button */}
             <button
               onClick={handleLogin}
               disabled={loading}
@@ -148,24 +142,6 @@ export default function LoginPage() {
               {loading ? "Signing in..." : "Log In"}
             </button>
 
-            {/* First-time User Link */}
-            <div className="text-center">
-              <button
-                onClick={handleFirstTimeUser}
-                className="text-sm text-green-700 hover:text-green-800 hover:underline dark:text-green-400 dark:hover:text-green-200"
-              >
-                Are you a first-time user?
-              </button>
-            </div>
-
-            <div className="text-center">
-              <button
-                onClick={() => router.push("/(auth)/forgot")}
-                className="text-sm text-gray-600 hover:underline dark:text-gray-300"
-              >
-                Forgot password?
-              </button>
-            </div>
           </div>
         </div>
       </div>

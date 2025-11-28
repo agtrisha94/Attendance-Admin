@@ -7,7 +7,7 @@ export async function uploadExcel(file: File, onProgress?: (percent: number) => 
   const form = new FormData();
   form.append("file", file);
 
-  const resp = await api.post("/api/import-excel", form, {
+  const resp = await api.post("/teachers/import", form, {
     headers: { "Content-Type": "multipart/form-data" },
     onUploadProgress: (evt: AxiosProgressEvent | ProgressEvent) => {
       // Normalize loaded/total for both AxiosProgressEvent and DOM ProgressEvent

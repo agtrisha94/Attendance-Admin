@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fetchPrograms } from "@/services/program.service";
 import { fetchYearsByProgramName } from "@/services/year.service";
 import { fetchBranchesByAcademicYear } from "@/services/fetchBranches.service";
@@ -12,8 +12,35 @@ import { fetchUsersByIds, UserLite } from "@/services/user.service";
  * Dashboard-style AttendanceContent
  * - Left filter panel
  * - Right content: summary cards + table
- * - Responsive
+ * - Persist filters to sessionStorage so switching tabs doesn't reset them
+ * - Avoid clearing dependents on initial mount using prev refs
  */
+
+const STORAGE_KEY = "attendance.filters.v1";
+
+type PersistedState = {
+  selectedProgramName: string | null;
+  selectedYearId: number | null;
+  selectedBranch: string | null;
+  selectedClass: string | null;
+  dateFrom: string;
+  dateTo: string;
+  searchQuery: string;
+  pageSize: number;
+  page: number;
+};
+
+const defaultPersist: PersistedState = {
+  selectedProgramName: null,
+  selectedYearId: null,
+  selectedBranch: null,
+  selectedClass: null,
+  dateFrom: "",
+  dateTo: "",
+  searchQuery: "",
+  pageSize: 10,
+  page: 1,
+};
 
 export default function AttendanceContent() {
   // Selections
@@ -22,15 +49,30 @@ export default function AttendanceContent() {
   const [branches, setBranches] = useState<any[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
 
-  const [selectedProgramName, setSelectedProgramName] = useState<string | null>(null);
-  const [selectedYearId, setSelectedYearId] = useState<number | null>(null);
-  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
-  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  // --- persisted selections (init from sessionStorage) ---
+  const loadPersist = (): PersistedState => {
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return defaultPersist;
+      const parsed = JSON.parse(raw) as Partial<PersistedState>;
+      return { ...defaultPersist, ...parsed };
+    } catch (e) {
+      console.warn("Failed to load persisted attendance filters:", e);
+      return defaultPersist;
+    }
+  };
+
+  const initial = typeof window !== "undefined" ? loadPersist() : defaultPersist;
+
+  const [selectedProgramName, setSelectedProgramName] = useState<string | null>(initial.selectedProgramName);
+  const [selectedYearId, setSelectedYearId] = useState<number | null>(initial.selectedYearId);
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(initial.selectedBranch);
+  const [selectedClass, setSelectedClass] = useState<string | null>(initial.selectedClass);
 
   // Filters & UI
-  const [dateFrom, setDateFrom] = useState<string | "">("");
-  const [dateTo, setDateTo] = useState<string | "">("");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState<string | "">(initial.dateFrom);
+  const [dateTo, setDateTo] = useState<string | "">(initial.dateTo);
+  const [searchQuery, setSearchQuery] = useState<string>(initial.searchQuery);
 
   const [loading, setLoading] = useState({
     programs: false,
@@ -48,8 +90,33 @@ export default function AttendanceContent() {
   const [userMap, setUserMap] = useState<Map<string, UserLite>>(new Map());
 
   // Pagination (small)
-  const [pageSize, setPageSize] = useState<number>(10);
-  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(initial.pageSize);
+  const [page, setPage] = useState<number>(initial.page);
+
+  // --- refs to detect real changes (prevent clearing on initial mount) ---
+  const prevProgramRef = useRef<string | null | undefined>(undefined);
+  const prevYearRef = useRef<number | null | undefined>(undefined);
+  const prevBranchRef = useRef<string | null | undefined>(undefined);
+
+  // Persist filters whenever important bits change
+  useEffect(() => {
+    const p: PersistedState = {
+      selectedProgramName,
+      selectedYearId,
+      selectedBranch,
+      selectedClass,
+      dateFrom,
+      dateTo,
+      searchQuery,
+      pageSize,
+      page,
+    };
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    } catch (e) {
+      console.warn("Failed to persist attendance filters:", e);
+    }
+  }, [selectedProgramName, selectedYearId, selectedBranch, selectedClass, dateFrom, dateTo, searchQuery, pageSize, page]);
 
   // --- load programs ---
   useEffect(() => {
@@ -68,19 +135,26 @@ export default function AttendanceContent() {
     loadPrograms();
   }, []);
 
-  // dependent loads
+  // dependent loads: Program -> Years
   useEffect(() => {
-    setYears([]);
-    setSelectedYearId(null);
-    setBranches([]);
-    setSelectedBranch(null);
-    setClasses([]);
-    setSelectedClass(null);
-    setAttendance([]);
-    setUserMap(new Map());
-    setError(null);
+    const prev = prevProgramRef.current;
+    // only clear dependents when program actually changed after mount
+    if (prev !== undefined && prev !== selectedProgramName) {
+      setYears([]);
+      setSelectedYearId(null);
+      setBranches([]);
+      setSelectedBranch(null);
+      setClasses([]);
+      setSelectedClass(null);
+      setAttendance([]);
+      setUserMap(new Map());
+      setError(null);
+    }
 
-    if (!selectedProgramName) return;
+    if (!selectedProgramName) {
+      prevProgramRef.current = selectedProgramName;
+      return;
+    }
 
     const loadYears = async () => {
       try {
@@ -96,18 +170,27 @@ export default function AttendanceContent() {
     };
 
     loadYears();
+    prevProgramRef.current = selectedProgramName;
   }, [selectedProgramName]);
 
+  // dependent loads: Year -> Branches
   useEffect(() => {
-    setBranches([]);
-    setSelectedBranch(null);
-    setClasses([]);
-    setSelectedClass(null);
-    setAttendance([]);
-    setUserMap(new Map());
-    setError(null);
+    const prev = prevYearRef.current;
+    // only clear dependents when year actually changed after mount
+    if (prev !== undefined && prev !== selectedYearId) {
+      setBranches([]);
+      setSelectedBranch(null);
+      setClasses([]);
+      setSelectedClass(null);
+      setAttendance([]);
+      setUserMap(new Map());
+      setError(null);
+    }
 
-    if (!selectedYearId) return;
+    if (!selectedYearId) {
+      prevYearRef.current = selectedYearId;
+      return;
+    }
 
     const loadBranches = async () => {
       try {
@@ -123,16 +206,25 @@ export default function AttendanceContent() {
     };
 
     loadBranches();
+    prevYearRef.current = selectedYearId;
   }, [selectedYearId]);
 
+  // dependent loads: Branch -> Classes
   useEffect(() => {
-    setClasses([]);
-    setSelectedClass(null);
-    setAttendance([]);
-    setUserMap(new Map());
-    setError(null);
+    const prev = prevBranchRef.current;
+    // only clear classes when branch actually changed after mount
+    if (prev !== undefined && prev !== selectedBranch) {
+      setClasses([]);
+      setSelectedClass(null);
+      setAttendance([]);
+      setUserMap(new Map());
+      setError(null);
+    }
 
-    if (!selectedProgramName || !selectedYearId || !selectedBranch) return;
+    if (!selectedProgramName || !selectedYearId || !selectedBranch) {
+      prevBranchRef.current = selectedBranch;
+      return;
+    }
 
     const loadClasses = async () => {
       try {
@@ -150,6 +242,7 @@ export default function AttendanceContent() {
     };
 
     loadClasses();
+    prevBranchRef.current = selectedBranch;
   }, [selectedProgramName, selectedYearId, selectedBranch, years]);
 
   // name resolver helper
@@ -297,6 +390,7 @@ export default function AttendanceContent() {
     setDateTo("");
     setSearchQuery("");
     setPage(1);
+    // keep selections (program/year/branch/class) intact — if you want to clear everything, also clear those here
   };
 
   return (

@@ -11,542 +11,486 @@ import { fetchYearsByProgramName } from "@/services/year.service";
 
 type RowStatus = "idle" | "saving" | "success" | "error";
 
-interface Assignment {
-  key: string;
-  programId?: number;
-  programName?: string;
-  branchName?: string;
-  classId?: number;
-  year?: number; // numeric year id/number from backend
-  subjectId?: string;
+interface SubjectRow {
+  id: string | number;
+  name: string;
+  assignedTeacherId?: string | number | null;
   status?: RowStatus;
   error?: string | null;
 }
 
-const makeKey = (teacherId: string) =>
-  `${teacherId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-
 const AssignTeachersContent: React.FC = () => {
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  // global lists
   const [programs, setPrograms] = useState<{ id: number; name: string }[]>([]);
-  const [loading, setLoading] = useState({ teachers: false, programs: false });
+  const [teachersGlobal, setTeachersGlobal] = useState<Teacher[]>([]);
+  const [loading, setLoading] = useState({
+    programs: false,
+    teachers: false,
+    branches: false,
+    classes: false,
+    subjects: false,
+  });
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const [assignments, setAssignments] = useState<Record<string, Assignment[]>>({});
+  // selectors
+  const [selectedProgramId, setSelectedProgramId] = useState<number | undefined>(undefined);
+  const [selectedProgramName, setSelectedProgramName] = useState<string | undefined>(undefined);
+  const [selectedYear, setSelectedYear] = useState<number | undefined>(undefined);
+  const [selectedBranch, setSelectedBranch] = useState<string | undefined>(undefined);
+  const [selectedClassId, setSelectedClassId] = useState<number | undefined>(undefined);
 
   // caches
   const [yearsByProgram, setYearsByProgram] = useState<Record<string, any[]>>({});
   const [branchesByYear, setBranchesByYear] = useState<Record<number, any[]>>({});
-  const [classesByRow, setClassesByRow] = useState<Record<string, any[]>>({});
-  const [subjectsByRow, setSubjectsByRow] = useState<Record<string, any[]>>({});
+  const [classesByBranchCache, setClassesByBranchCache] = useState<Record<string, any[]>>({});
+  const [subjectsForClass, setSubjectsForClass] = useState<Record<number, SubjectRow[]>>({});
 
+  // UI state
   const [globalSaving, setGlobalSaving] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    const load = async () => {
+    const loadInitial = async () => {
       try {
-        setLoading((s) => ({ ...s, teachers: true, programs: true }));
+        setLoading((s) => ({ ...s, programs: true, teachers: true }));
         setFetchError(null);
-
-        const [teachersRes, programsRes] = await Promise.all([fetchTeachers(), fetchPrograms()]);
+        const [programsRes, teachersRes] = await Promise.all([fetchPrograms(), fetchTeachers()]);
         if (!mounted) return;
-        setTeachers(teachersRes);
         setPrograms(programsRes);
+        setTeachersGlobal(teachersRes);
       } catch (err: any) {
-        console.error("Error loading initial data:", err);
+        console.error("Initial load failed:", err);
         setFetchError(err?.message ?? "Failed to load initial data");
       } finally {
-        if (mounted) setLoading((s) => ({ ...s, teachers: false, programs: false }));
+        if (mounted) setLoading((s) => ({ ...s, programs: false, teachers: false }));
       }
     };
-
-    load();
+    loadInitial();
     return () => {
       mounted = false;
     };
   }, []);
 
-  /* ====== Years (per-program) ====== */
-  const loadYearsForProgram = async (programName: string) => {
+  /* ====== Helpers to load hierarchical data ====== */
+  const loadYearsForProgram = async (programName?: string) => {
     if (!programName) return [];
-
     if (yearsByProgram[programName]) return yearsByProgram[programName];
-
     try {
       const res = await fetchYearsByProgramName(programName);
-      setYearsByProgram((prev) => ({ ...prev, [programName]: res }));
+      setYearsByProgram((p) => ({ ...p, [programName]: res }));
       return res;
     } catch (err) {
-      console.error("Failed to fetch years for program", programName, err);
-      setYearsByProgram((prev) => ({ ...prev, [programName]: [] }));
+      console.error("loadYearsForProgram failed", err);
+      setYearsByProgram((p) => ({ ...p, [programName]: [] }));
       return [];
     }
   };
 
-  /* ====== CRUD for rows ====== */
-  const addAssignment = (teacherId: string) => {
-    setAssignments((prev) => {
-      const arr = prev[teacherId] ? [...prev[teacherId]] : [];
-      arr.push({
-        key: makeKey(teacherId),
-        programId: undefined,
-        programName: undefined,
-        branchName: undefined,
-        classId: undefined,
-        year: undefined,
-        subjectId: undefined,
+  const loadBranchesForYear = async (yearNumber?: number) => {
+    if (!yearNumber) return [];
+    if (branchesByYear[yearNumber]) return branchesByYear[yearNumber];
+    try {
+      setLoading((s) => ({ ...s, branches: true }));
+      const res = await fetchBranchesByAcademicYear(yearNumber);
+      setBranchesByYear((p) => ({ ...p, [yearNumber]: res }));
+      return res;
+    } catch (err) {
+      console.error("loadBranchesForYear failed", err);
+      setBranchesByYear((p) => ({ ...p, [yearNumber]: [] }));
+      return [];
+    } finally {
+      setLoading((s) => ({ ...s, branches: false }));
+    }
+  };
+
+  const loadClassesForBranch = async (programName?: string, year?: number, branchName?: string) => {
+    if (!programName || !year || !branchName) return [];
+    const cacheKey = `${programName}::${year}::${branchName}`;
+    if (classesByBranchCache[cacheKey]) return classesByBranchCache[cacheKey];
+    try {
+      setLoading((s) => ({ ...s, classes: true }));
+      const res = await fetchClassesByBranch(programName, year, branchName);
+      setClassesByBranchCache((p) => ({ ...p, [cacheKey]: res }));
+      return res;
+    } catch (err) {
+      console.error("loadClassesForBranch failed", err);
+      setClassesByBranchCache((p) => ({ ...p, [cacheKey]: [] }));
+      return [];
+    } finally {
+      setLoading((s) => ({ ...s, classes: false }));
+    }
+  };
+
+  const loadSubjectsForClass = async (classId?: number) => {
+    if (!classId) return [];
+    if (subjectsForClass[classId]) return subjectsForClass[classId];
+    try {
+      setLoading((s) => ({ ...s, subjects: true }));
+      const res: any[] = await fetchSubjectsByClass(classId);
+      const normalized: SubjectRow[] = res.map((s) => ({
+        id: s.id,
+        name: s.name ?? s.subjectName ?? `Subject ${s.id}`,
+        assignedTeacherId: s.assignedTeacherId ?? s.teacherId ?? null,
         status: "idle",
         error: null,
-      });
-      return { ...prev, [teacherId]: arr };
-    });
+      }));
+      setSubjectsForClass((p) => ({ ...p, [classId]: normalized }));
+      return normalized;
+    } catch (err) {
+      console.error("loadSubjectsForClass failed", err);
+      setSubjectsForClass((p) => ({ ...p, [classId]: [] }));
+      return [];
+    } finally {
+      setLoading((s) => ({ ...s, subjects: false }));
+    }
   };
 
-  const removeAssignment = (teacherId: string, index: number) => {
-    setAssignments((prev) => {
-      const arr = prev[teacherId] ? [...prev[teacherId]] : [];
-      if (index < 0 || index >= arr.length) return prev;
-      const removed = arr.splice(index, 1);
-      // clear cached classes/subjects for removed row
-      setClassesByRow((c) => {
-        const copy = { ...c };
-        delete copy[removed[0].key];
-        return copy;
-      });
-      setSubjectsByRow((s) => {
-        const copy = { ...s };
-        delete copy[removed[0].key];
-        return copy;
-      });
-      if (arr.length === 0) {
-        const { [teacherId]: _r, ...rest } = prev;
-        return rest;
+  /* ====== Determine teachers for a class using existing teacher fields (no new services) ====== */
+  const getTeachersForClassFromGlobal = (classObj: any | null) => {
+    // If class object is missing, return global list as fallback
+    if (!classObj) return teachersGlobal;
+
+    // pick sensible fields from class object (different backends name these differently)
+    const classProgram = classObj.programName ?? classObj.program ?? selectedProgramName;
+    const classYear = classObj.year ?? classObj.yearNumber ?? selectedYear;
+    const classBranch = classObj.branch ?? classObj.branchName ?? selectedBranch;
+    // the class *section* or *name* may represent the section/sectionName/sectionId
+    const classSection =
+      classObj.section ?? classObj.sectionName ?? classObj.sectionId ?? classObj.name ?? undefined;
+
+    // filter teachers where their assignedProgram/Branch/Year/Section match the class metadata
+    const matched = teachersGlobal.filter((t) => {
+      try {
+        // matching rules: if teacher has an assigned field, it must match; if teacher's assigned field is null/undefined -> treat as not assigned (don't match)
+        if (t.assignedProgram && classProgram && String(t.assignedProgram).toLowerCase() !== String(classProgram).toLowerCase()) return false;
+        if (t.assignedBranch && classBranch && String(t.assignedBranch).toLowerCase() !== String(classBranch).toLowerCase()) return false;
+
+        // teacher.assignedYear might be string or number
+        if (t.assignedYear && classYear && String(t.assignedYear) !== String(classYear)) return false;
+
+        // assignedSection matching: teacher.assignedSection vs classSection
+        if (t.assignedSection && classSection && String(t.assignedSection).toLowerCase() !== String(classSection).toLowerCase()) return false;
+
+        // At this point, teacher either matches all assigned fields available or teacher has no assigned* fields (in which case include)
+        return true;
+      } catch (e) {
+        return false;
       }
-      return { ...prev, [teacherId]: arr };
+    });
+
+    // If none matched (maybe backend doesn't populate teacher assigned fields), return the global teacher list as fallback
+    return matched.length > 0 ? matched : teachersGlobal;
+  };
+
+  /* ====== Selector change handlers (cascade clears) ====== */
+  const onProgramChange = async (programIdVal?: number) => {
+    setSelectedProgramId(programIdVal);
+    const pName = programs.find((p) => p.id === programIdVal)?.name;
+    setSelectedProgramName(pName);
+    setSelectedYear(undefined);
+    setSelectedBranch(undefined);
+    setSelectedClassId(undefined);
+  };
+
+  const onYearChange = async (yearVal?: number) => {
+    setSelectedYear(yearVal);
+    setSelectedBranch(undefined);
+    setSelectedClassId(undefined);
+    if (yearVal) {
+      await loadBranchesForYear(yearVal);
+    }
+  };
+
+  const onBranchChange = async (branchName?: string) => {
+    setSelectedBranch(branchName);
+    setSelectedClassId(undefined);
+    if (branchName && selectedProgramName && selectedYear) {
+      await loadClassesForBranch(selectedProgramName, selectedYear, branchName);
+    }
+  };
+
+  const onClassChange = async (classId?: number) => {
+    setSelectedClassId(classId);
+    if (classId) {
+      await loadSubjectsForClass(classId);
+      // classesList may have the class object; fetch it from cache so we can infer section/program/year/branch
+      // but we don't call any new services here — get the class object from classes cache
+    }
+  };
+
+  /* ====== UI helpers & actions ====== */
+  const getSubjectsRows = () => {
+    if (!selectedClassId) return [];
+    return subjectsForClass[selectedClassId] ?? [];
+  };
+
+  const updateSubjectRow = (classId: number, subjectIndex: number, changes: Partial<SubjectRow>) => {
+    setSubjectsForClass((prev) => {
+      const copy = { ...prev };
+      const arr = copy[classId] ? [...copy[classId]] : [];
+      arr[subjectIndex] = { ...arr[subjectIndex], ...changes };
+      copy[classId] = arr;
+      return copy;
     });
   };
 
-  const handleChange = (teacherId: string, index: number, field: keyof Assignment, value?: any) => {
-    setAssignments((prev) => {
-      const arr = prev[teacherId] ? [...prev[teacherId]] : [];
-      const prevRow = arr[index] || ({} as Assignment);
-      const row = { ...(arr[index] || { key: makeKey(teacherId) }) } as Assignment;
+  const validateSubjectRow = (row: SubjectRow) => !!row.assignedTeacherId;
 
-      if (field === "programId") {
-        const num = value === "" || value === undefined ? undefined : Number(value);
-        const newProgramId = Number.isNaN(num) ? undefined : num;
-        row.programId = newProgramId;
-        row.programName = programs.find((p) => p.id === row.programId)?.name;
-
-        // cascading clears: year/branch/class/subject when program changes
-        row.year = undefined;
-        row.branchName = undefined;
-        row.classId = undefined;
-        row.subjectId = undefined;
-
-        // clear caches related to this row
-        setClassesByRow((c) => {
-          const copy = { ...c };
-          delete copy[row.key];
-          return copy;
-        });
-        setSubjectsByRow((s) => {
-          const copy = { ...s };
-          delete copy[row.key];
-          return copy;
-        });
-
-        // proactively load years for the selected program (so Year select populates immediately)
-        if (row.programName) {
-          loadYearsForProgram(row.programName).catch((e) =>
-            console.error("preload years failed", e)
-          );
-        }
-      } else if (field === "year") {
-        const num = value === "" || value === undefined ? undefined : Number(value);
-        row.year = Number.isNaN(num) ? undefined : num;
-        // clear branches/classes/subject when year changes
-        row.branchName = undefined;
-        row.classId = undefined;
-        row.subjectId = undefined;
-        setClassesByRow((c) => {
-          const copy = { ...c };
-          delete copy[row.key];
-          return copy;
-        });
-        setSubjectsByRow((s) => {
-          const copy = { ...s };
-          delete copy[row.key];
-          return copy;
-        });
-
-        // preload branches for that year
-        if (row.year) {
-          loadBranchesForYear(row.year).catch((e) => console.error("preload branches failed", e));
-        }
-      } else if (field === "branchName") {
-        row.branchName = value;
-        row.classId = undefined;
-        row.subjectId = undefined;
-        setClassesByRow((c) => {
-          const copy = { ...c };
-          delete copy[row.key];
-          return copy;
-        });
-        setSubjectsByRow((s) => {
-          const copy = { ...s };
-          delete copy[row.key];
-          return copy;
-        });
-
-        // preload classes
-        if (row.programName && row.year && row.branchName) {
-          loadClassesForRow(row.key, row.programName, row.year, row.branchName).catch((e) =>
-            console.error("preload classes failed", e)
-          );
-        }
-      } else if (field === "classId") {
-        const num = value === "" || value === undefined ? undefined : Number(value);
-        row.classId = Number.isNaN(num) ? undefined : num;
-        // clear previously selected subject for changed class
-        row.subjectId = undefined;
-        setSubjectsByRow((s) => {
-          const copy = { ...s };
-          delete copy[row.key];
-          return copy;
-        });
-
-        // preload subjects for class
-        if (row.classId) {
-          loadSubjectsForRow(row.key, row.classId).catch((e) => console.error("preload subjects failed", e));
-        }
-      } else if (field === "subjectId") {
-        row.subjectId = value;
-      } else {
-        (row as any)[field] = value;
-      }
-
-      arr[index] = row;
-      return { ...prev, [teacherId]: arr };
-    });
-  };
-
-  /* ====== Branches fetching (by year) ====== */
-  const loadBranchesForYear = async (yearNumber: number) => {
-    if (!yearNumber) return [];
-
-    if (branchesByYear[yearNumber]) return branchesByYear[yearNumber];
-
-    try {
-      const res = await fetchBranchesByAcademicYear(yearNumber);
-      setBranchesByYear((prev) => ({ ...prev, [yearNumber]: res }));
-      return res;
-    } catch (err) {
-      console.error("Failed to fetch branches by year", err);
-      setBranchesByYear((prev) => ({ ...prev, [yearNumber]: [] }));
-      return [];
-    }
-  };
-
-  /* ====== Classes fetching (on-demand by row) ====== */
-  const loadClassesForRow = async (rowKey: string, programName?: string, year?: number, branchName?: string) => {
-    if (!programName || !year || !branchName) {
-      setClassesByRow((prev) => ({ ...prev, [rowKey]: [] }));
-      return [];
-    }
-
-    if (classesByRow[rowKey]?.length) return classesByRow[rowKey];
-
-    try {
-      const res = await fetchClassesByBranch(programName, year, branchName);
-      setClassesByRow((prev) => ({ ...prev, [rowKey]: res }));
-      return res;
-    } catch (err) {
-      console.error("Failed to fetch classes for row", err);
-      setClassesByRow((prev) => ({ ...prev, [rowKey]: [] }));
-      return [];
-    }
-  };
-
-  /* ====== Subjects fetching (by classId) ====== */
-  const loadSubjectsForRow = async (rowKey: string, classId: number) => {
-    if (!classId) {
-      setSubjectsByRow((prev) => ({ ...prev, [rowKey]: [] }));
-      return [];
-    }
-    if (subjectsByRow[rowKey]?.length) return subjectsByRow[rowKey];
-
-    try {
-      const res = await fetchSubjectsByClass(classId);
-      setSubjectsByRow((prev) => ({ ...prev, [rowKey]: res }));
-      return res;
-    } catch (err) {
-      console.error("Failed to fetch subjects for row", err);
-      setSubjectsByRow((prev) => ({ ...prev, [rowKey]: [] }));
-      return [];
-    }
-  };
-
-  const validateRow = (r: Assignment) =>
-    !!(r.programId && r.branchName && r.classId && r.year && r.subjectId);
-
-  const isTeacherAssignmentsValid = (teacherId: string) => {
-    const arr = assignments[teacherId] || [];
-    if (arr.length === 0) return false;
-    return arr.every(validateRow);
-  };
-
-  /* ====== Save (calls assignTeacherToSubjectForClass) ====== */
-  const handleSaveAllForTeacher = async (teacherId: string) => {
-    const arr = assignments[teacherId] || [];
-    if (arr.length === 0) {
-      alert("No assignments to save.");
+  /* Save one subject assignment */
+  const handleSaveSubject = async (classId: number, idx: number) => {
+    const rows = subjectsForClass[classId] ?? [];
+    const row = rows[idx];
+    if (!row) return;
+    if (!validateSubjectRow(row)) {
+      alert("Please select a teacher before saving this subject.");
       return;
     }
-    const invalidIndex = arr.findIndex((r) => !validateRow(r));
-    if (invalidIndex !== -1) {
-      alert(`Please fill all fields for assignment #${invalidIndex + 1} before saving.`);
+    updateSubjectRow(classId, idx, { status: "saving", error: null });
+    try {
+      await assignTeacherToSubjectForClass(String(row.id), String(row.assignedTeacherId), classId);
+      updateSubjectRow(classId, idx, { status: "success", error: null });
+    } catch (err: any) {
+      console.error("save subject failed", err);
+      updateSubjectRow(classId, idx, { status: "error", error: err?.message ?? String(err) });
+    }
+  };
+
+  /* Save all subjects for the selected class */
+  const handleSaveAllSubjectsForClass = async (classId?: number) => {
+    if (!classId) return;
+    const rows = subjectsForClass[classId] ?? [];
+    if (rows.length === 0) {
+      alert("No subjects to save for this class.");
+      return;
+    }
+    const invalid = rows.findIndex((r) => !validateSubjectRow(r));
+    if (invalid !== -1) {
+      alert(`Please select teacher for subject #${invalid + 1} before saving all.`);
       return;
     }
 
     setGlobalSaving(true);
     try {
-      for (let i = 0; i < arr.length; i++) {
-        const row = arr[i];
-
-        // optimistic
-        setAssignments((prev) => {
-          const copy = [...(prev[teacherId] || [])];
-          copy[i] = { ...copy[i], status: "saving", error: null };
-          return { ...prev, [teacherId]: copy };
-        });
-
+      for (let i = 0; i < rows.length; i++) {
+        updateSubjectRow(classId, i, { status: "saving", error: null });
         try {
-          // call assign API (subjectId, teacherId, classId)
-          console.log("Assigning:", {
-            subjectId: row.subjectId,
-            teacherId,
-            classId: row.classId,
-          });
-
-          await assignTeacherToSubjectForClass(row.subjectId as string, teacherId, row.classId as number);
-
-          setAssignments((prev) => {
-            const copy = [...(prev[teacherId] || [])];
-            copy[i] = { ...copy[i], status: "success", error: null };
-            return { ...prev, [teacherId]: copy };
-          });
+          await assignTeacherToSubjectForClass(String(rows[i].id), String(rows[i].assignedTeacherId), classId);
+          updateSubjectRow(classId, i, { status: "success", error: null });
         } catch (err: any) {
-          console.error("Assign failed", err);
-          setAssignments((prev) => {
-            const copy = [...(prev[teacherId] || [])];
-            copy[i] = { ...copy[i], status: "error", error: err?.message ?? String(err) };
-            return { ...prev, [teacherId]: copy };
-          });
-          // continue saving other rows
+          console.error("assign failed for subject", rows[i], err);
+          updateSubjectRow(classId, i, { status: "error", error: err?.message ?? String(err) });
         }
       }
-      alert("Save finished. Check per-row statuses.");
+      alert("Save finished. Check per-subject statuses.");
     } finally {
       setGlobalSaving(false);
     }
   };
 
   /* ====== Render ====== */
+  const yearsList = selectedProgramName ? yearsByProgram[selectedProgramName] ?? [] : [];
+  const branchesList = selectedYear ? branchesByYear[selectedYear] ?? [] : [];
+  const classesList =
+    selectedProgramName && selectedYear && selectedBranch
+      ? classesByBranchCache[`${selectedProgramName}::${selectedYear}::${selectedBranch}`] ?? []
+      : [];
+
+  // derive currently selected class object (if present in cache)
+  const selectedClassObj =
+    selectedProgramName && selectedYear && selectedBranch && selectedClassId
+      ? classesList.find((c: any) => Number(c.id) === Number(selectedClassId)) ?? null
+      : null;
+
+  // compute teacher list for this class using the teacher assigned fields (no new services)
+  const teachersForCurrentClass = getTeachersForClassFromGlobal(selectedClassObj);
+
   return (
     <div className="p-6 bg-white rounded-lg shadow dark:bg-gray-800 dark:text-gray-100">
-      <h2 className="text-2xl font-semibold mb-4">Assign Teachers</h2>
+      <h2 className="text-2xl font-semibold mb-4">Assign Teachers (by Class)</h2>
 
       {fetchError && <div className="text-red-500 mb-4">Error loading data: {fetchError}</div>}
 
-      {loading.teachers ? (
-        <div>Loading teachers...</div>
-      ) : teachers.length === 0 ? (
-        <div className="text-sm text-gray-500">No teachers found.</div>
-      ) : (
-        teachers.map((teacher) => (
-          <div key={teacher.id} className="mb-8 border rounded-lg p-4 bg-gray-50 dark:bg-gray-700">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h3 className="text-lg font-bold">{teacher.name}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-300">{teacher.department}</p>
-              </div>
+      <div className="grid grid-cols-6 gap-3 mb-6 items-center">
+        {/* Program */}
+        <select
+          value={selectedProgramId ?? ""}
+          onChange={async (e) => {
+            const v = e.target.value === "" ? undefined : Number(e.target.value);
+            await onProgramChange(v);
+            if (v) {
+              const pName = programs.find((p) => p.id === v)?.name;
+              if (pName) {
+                await loadYearsForProgram(pName);
+              }
+            }
+          }}
+          className="border rounded px-2 py-1 col-span-1"
+        >
+          <option value="">Program</option>
+          {programs.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => addAssignment(teacher.id)}
-                  className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
-                  type="button"
-                >
-                  + Add Assignment
-                </button>
-              </div>
-            </div>
+        {/* Year */}
+        <select
+          value={selectedYear ?? ""}
+          onChange={async (e) => {
+            const v = e.target.value === "" ? undefined : Number(e.target.value);
+            await onYearChange(v);
+          }}
+          onFocus={() => {
+            if (selectedProgramName) loadYearsForProgram(selectedProgramName).catch((e) => console.error(e));
+          }}
+          disabled={!selectedProgramId}
+          className="border rounded px-2 py-1 col-span-1"
+        >
+          <option value="">Year</option>
+          {yearsList.map((y: any) => {
+            const val = y.yearNumber ?? y.id;
+            const label = y.yearName ?? y.label ?? `Year ${val}`;
+            return (
+              <option key={val} value={val}>
+                {label}
+              </option>
+            );
+          })}
+        </select>
 
-            {/* rows */}
-            {(assignments[teacher.id] || []).map((assign, idx) => {
-              const availableBranches = assign.year ? branchesByYear[Number(assign.year)] ?? [] : [];
-              const availableClasses = classesByRow[assign.key] ?? [];
-              const availableSubjects = subjectsByRow[assign.key] ?? [];
+        {/* Branch */}
+        <select
+          value={selectedBranch ?? ""}
+          onChange={async (e) => {
+            const v = e.target.value ?? undefined;
+            await onBranchChange(v);
+          }}
+          disabled={!selectedYear}
+          className="border rounded px-2 py-1 col-span-2"
+        >
+          <option value="">Branch</option>
+          {branchesList.map((b: any) => (
+            <option key={b.id ?? b.name} value={b.name}>
+              {b.name}
+            </option>
+          ))}
+        </select>
 
-              return (
-                <div key={assign.key} className="grid grid-cols-6 gap-3 mb-3 items-center">
-                  {/* Program */}
-                  <select
-                    value={assign.programId ?? ""}
-                    onChange={async (e) => {
-                      const value = e.target.value === "" ? "" : Number(e.target.value);
-                      handleChange(teacher.id, idx, "programId", value);
-                      // after change, immediately load years for the selected program name
-                      const programName = programs.find((p) => p.id === Number(value))?.name;
-                      if (programName) {
-                        await loadYearsForProgram(programName);
-                      }
-                    }}
-                    className="border rounded px-2 py-1"
-                  >
-                    <option value="">Program</option>
-                    {programs.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Year (loaded from backend based on programName) */}
-                  <select
-                    value={assign.year ?? ""}
-                    onChange={async (e) => {
-                      const val = e.target.value;
-                      handleChange(teacher.id, idx, "year", val === "" ? undefined : Number(val));
-                      if (val) await loadBranchesForYear(Number(val)); // pre-load branches
-                    }}
-                    onFocus={() => {
-                      // ensure we load years based on assigned program (or programId)
-                      const pName = assign.programName ?? programs.find((p) => p.id === assign.programId)?.name;
-                      if (pName) loadYearsForProgram(pName).catch((e) => console.error(e));
-                    }}
-                    className="border rounded px-2 py-1"
-                    disabled={!assign.programId && !assign.programName}
-                  >
-                    <option value="">Year</option>
-                    {(assign.programName ? yearsByProgram[assign.programName] ?? [] : []).map((y: any) => {
-                      const val = y.yearNumber ?? y.id;
-                      const label = y.yearName ?? y.label ?? `Year ${val}`;
-                      return (
-                        <option key={val} value={val}>
-                          {label}
-                        </option>
-                      );
-                    })}
-                  </select>
-
-                  {/* Branch */}
-                  <select
-                    value={assign.branchName ?? ""}
-                    onChange={async (e) => {
-                      const val = e.target.value;
-                      handleChange(teacher.id, idx, "branchName", val);
-                      // preload classes for the row
-                      const pName = assign.programName ?? programs.find((p) => p.id === assign.programId)?.name;
-                      if (pName && assign.year && val) {
-                        await loadClassesForRow(assign.key, pName, assign.year, val);
-                      }
-                    }}
-                    className="border rounded px-2 py-1"
-                    disabled={!assign.year}
-                  >
-                    <option value="">Branch</option>
-                    {availableBranches.map((b: any) => (
-                      <option key={b.id ?? b.name} value={b.name}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Class */}
-                  <select
-                    value={assign.classId ?? ""}
-                    onChange={async (e) => {
-                      const value = e.target.value === "" ? "" : Number(e.target.value);
-                      handleChange(teacher.id, idx, "classId", value);
-                      if (value) await loadSubjectsForRow(assign.key, Number(value));
-                    }}
-                    onFocus={() => {
-                      const pName = assign.programName ?? programs.find((p) => p.id === assign.programId)?.name;
-                      if (pName && assign.year && assign.branchName) {
-                        loadClassesForRow(assign.key, pName, assign.year, assign.branchName).catch((e) =>
-                          console.error("classes onFocus failed", e)
-                        );
-                      }
-                    }}
-                    className="border rounded px-2 py-1"
-                    disabled={!assign.programId || !assign.branchName || !assign.year}
-                  >
-                    <option value="">Class</option>
-                    {availableClasses.map((c: any) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name ?? `Class ${c.id}`}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Subject (loaded by class) */}
-                  <select
-                    value={assign.subjectId ?? ""}
-                    onChange={(e) => handleChange(teacher.id, idx, "subjectId", e.target.value)}
-                    onFocus={() => assign.classId && loadSubjectsForRow(assign.key, assign.classId)}
-                    className="border rounded px-2 py-1"
-                    disabled={!assign.classId}
-                  >
-                    <option value="">Subject</option>
-                    {availableSubjects.map((s: any) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Remove */}
-                  <button
-                    onClick={() => removeAssignment(teacher.id, idx)}
-                    className="bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
-                    type="button"
-                  >
-                    Remove
-                  </button>
-
-                  {/* row status */}
-                  <div className="col-span-6 mt-1 text-sm">
-                    {assign.status === "saving" && <span>Saving...</span>}
-                    {assign.status === "success" && <span className="text-green-500">Saved ✓</span>}
-                    {assign.status === "error" && <span className="text-red-400">Error: {assign.error ?? "Failed to save"}</span>}
-                  </div>
-                </div>
+        {/* Class */}
+        <select
+          value={selectedClassId ?? ""}
+          onChange={async (e) => {
+            const v = e.target.value === "" ? undefined : Number(e.target.value);
+            await onClassChange(v);
+          }}
+          onFocus={() => {
+            if (selectedProgramName && selectedYear && selectedBranch) {
+              loadClassesForBranch(selectedProgramName, selectedYear, selectedBranch).catch((e) =>
+                console.error("classes onFocus failed", e)
               );
-            })}
+            }
+          }}
+          disabled={!selectedBranch}
+          className="border rounded px-2 py-1 col-span-2"
+        >
+          <option value="">Class</option>
+          {classesList.map((c: any) => (
+            <option key={c.id} value={c.id}>
+              {c.name ?? `Class ${c.id}`}
+            </option>
+          ))}
+        </select>
+      </div>
 
-            {/* Save */}
-            {assignments[teacher.id]?.length > 0 && (
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => handleSaveAllForTeacher(teacher.id)}
-                  disabled={!isTeacherAssignmentsValid(teacher.id) || globalSaving}
-                  className="mt-2 bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-60"
-                  type="button"
-                >
-                  {globalSaving ? "Saving..." : "Save All"}
-                </button>
-
-                {!isTeacherAssignmentsValid(teacher.id) && <span className="text-sm text-gray-500">Fill all fields to enable Save</span>}
-              </div>
-            )}
+      {/* Subjects table for the selected class */}
+      {!selectedClassId ? (
+        <div className="text-sm text-gray-500">Select a Class to load subjects and assigned teachers.</div>
+      ) : loading.subjects ? (
+        <div>Loading subjects...</div>
+      ) : (
+        <>
+          <div className="mb-4 flex justify-between items-center">
+            <h3 className="text-lg font-medium">Subjects for selected class</h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleSaveAllSubjectsForClass(selectedClassId)}
+                className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-60"
+                disabled={globalSaving || getSubjectsRows().length === 0}
+                type="button"
+              >
+                {globalSaving ? "Saving..." : "Save All"}
+              </button>
+            </div>
           </div>
-        ))
+
+          {getSubjectsRows().length === 0 ? (
+            <div className="text-sm text-gray-500">No subjects found for this class.</div>
+          ) : (
+            <div className="space-y-3">
+              {getSubjectsRows().map((sub, idx) => {
+                return (
+                  <div key={String(sub.id)} className="grid grid-cols-6 gap-3 items-center bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                    <div className="col-span-2">
+                      <div className="font-medium">{sub.name}</div>
+                      <div className="text-xs text-gray-500">ID: {sub.id}</div>
+                    </div>
+
+                    <select
+                      value={sub.assignedTeacherId ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value === "" ? undefined : e.target.value;
+                        updateSubjectRow(selectedClassId as number, idx, { assignedTeacherId: val ?? null });
+                      }}
+                      className="border rounded px-2 py-1 col-span-2"
+                    >
+                      <option value="">Select Teacher</option>
+                      {teachersForCurrentClass.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} {t.department ? `- ${t.department}` : ""}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleSaveSubject(selectedClassId as number, idx)}
+                        className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
+                        type="button"
+                      >
+                        Save
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          // reset row to backend value (reload subjects)
+                          loadSubjectsForClass(selectedClassId).catch((e) => console.error(e));
+                        }}
+                        className="bg-gray-300 text-black px-2 py-1 rounded hover:bg-gray-400"
+                        type="button"
+                      >
+                        Reset
+                      </button>
+                    </div>
+
+                    <div className="col-span-6 mt-1 text-sm">
+                      {sub.status === "saving" && <span>Saving...</span>}
+                      {sub.status === "success" && <span className="text-green-500">Saved ✓</span>}
+                      {sub.status === "error" && <span className="text-red-400">Error: {sub.error ?? "Failed to save"}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
-      <div className="mt-4 text-sm text-gray-500">{Object.keys(assignments).length > 0 ? "You have unsaved assignments." : "No pending assignments."}</div>
+      <div className="mt-6 text-sm text-gray-500">
+        Tip: Teachers for the class are derived from the global teacher list by matching teacher.assignedProgram / assignedBranch /
+        assignedYear / assignedSection to the selected class metadata. If your backend populates those assigned fields for teachers this will
+        return only relevant teachers; otherwise it falls back to the full teacher list.
+      </div>
     </div>
   );
 };
