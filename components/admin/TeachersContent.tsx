@@ -16,13 +16,6 @@ export default function TeachersContent() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  // add teacher modal (frontend-only)
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newTeacherName, setNewTeacherName] = useState("");
-  const [newTeacherEmail, setNewTeacherEmail] = useState("");
-  const [newTeacherDepartment, setNewTeacherDepartment] = useState("");
-  const [newTeacherId, setNewTeacherId] = useState<string | undefined>(undefined);
-
   // pagination
   const pageSize = 12;
   const [page, setPage] = useState(1);
@@ -147,39 +140,6 @@ export default function TeachersContent() {
     }
   };
 
-  // --- Add Teacher handler (frontend-only) ---
-  const handleAddTeacher = () => {
-    const name = newTeacherName.trim();
-    const email = newTeacherEmail.trim();
-    const department = newTeacherDepartment.trim();
-    const id = newTeacherId?.trim();
-
-    if (!name) return alert("Name is required.");
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return alert("Please enter a valid email or leave blank.");
-    }
-
-    const newTeacher: Teacher = {
-      id: id || `temp-${Date.now()}`,
-      name,
-      email: email || null,
-      department: department || null,
-      assignedProgram: null,
-      assignedBranch: null,
-      assignedYear: null,
-    } as Teacher;
-
-    setTeachers((prev) => [newTeacher, ...prev]);
-
-    setNewTeacherName("");
-    setNewTeacherEmail("");
-    setNewTeacherDepartment("");
-    setNewTeacherId(undefined);
-    setShowAddModal(false);
-
-    alert("Teacher added (frontend only).");
-  };
-
   // filter + paginate
   const filtered = teachers.filter((t: Teacher) => {
     const q = search.trim().toLowerCase();
@@ -209,9 +169,7 @@ export default function TeachersContent() {
             className="border rounded px-3 py-2"
           />
 
-          <button onClick={() => setShowAddModal(true)} className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
-            Add Teacher
-          </button>
+          {/* Add Teacher button removed per request */}
 
           {/* Unified file chooser for teachers: CSV & Excel */}
           <input
@@ -303,43 +261,7 @@ export default function TeachersContent() {
         </div>
       </div>
 
-      {/* Add Teacher Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md dark:bg-gray-700 dark:text-gray-100">
-            <h3 className="text-lg font-bold mb-4">Add Teacher (frontend only)</h3>
-
-            <div className="mb-3">
-              <label className="block mb-1">Name *</label>
-              <input value={newTeacherName} onChange={(e) => setNewTeacherName(e.target.value)} className="w-full border rounded px-3 py-2" />
-            </div>
-
-            <div className="mb-3">
-              <label className="block mb-1">Email</label>
-              <input value={newTeacherEmail} onChange={(e) => setNewTeacherEmail(e.target.value)} className="w-full border rounded px-3 py-2" />
-            </div>
-
-            <div className="mb-3">
-              <label className="block mb-1">Department</label>
-              <input value={newTeacherDepartment} onChange={(e) => setNewTeacherDepartment(e.target.value)} className="w-full border rounded px-3 py-2" />
-            </div>
-
-            <div className="mb-3">
-              <label className="block mb-1">Teacher ID (optional)</label>
-              <input value={newTeacherId ?? ""} onChange={(e) => setNewTeacherId(e.target.value || undefined)} className="w-full border rounded px-3 py-2" />
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowAddModal(false)} className="bg-gray-300 px-4 py-2 rounded">
-                Cancel
-              </button>
-              <button onClick={handleAddTeacher} className="bg-green-600 text-white px-4 py-2 rounded">
-                Add Teacher
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Add Teacher modal and related UI/state removed */}
     </div>
   );
 }
